@@ -196,7 +196,7 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
 
 export const DEFAULT_ROUTING_MATRIX: RoutingMatrix = {
   high: {
-    agent_turn: { candidates: ["claude-opus-4-6", "gpt-5.2", "gpt-5.3", "claude-sonnet-4-20250514"], maxTokens: 8192, ceilingCents: -1 },
+    agent_turn: { candidates: ["claude-sonnet-4-20250514", "gpt-5.2", "gpt-5.3", "claude-haiku-4-5-20251001"], maxTokens: 8192, ceilingCents: -1 },
     heartbeat_triage: { candidates: ["claude-haiku-4-5-20251001", "gpt-5-mini", "claude-haiku-4-20250514"], maxTokens: 2048, ceilingCents: 5 },
     safety_check: { candidates: ["claude-opus-4-6", "gpt-5.2", "gpt-5.3", "claude-sonnet-4-20250514"], maxTokens: 4096, ceilingCents: 20 },
     summarization: { candidates: ["claude-sonnet-4-20250514", "gpt-5.2", "gpt-5-mini", "claude-haiku-4-5-20251001", "claude-haiku-4-20250514"], maxTokens: 4096, ceilingCents: 15 },

@@ -163,6 +163,8 @@ export class LocalWorkerPool {
 
     const artifacts: string[] = [];
     let finalOutput = "";
+    let consecutiveToolErrors = 0;
+    const MAX_CONSECUTIVE_TOOL_ERRORS = 3;
     const startedAt = Date.now();
 
     logger.info(`[WORKER ${workerId}] Starting task "${task.title}" (${task.id}), role: ${task.agentRole ?? "generalist"}`);
@@ -220,6 +222,7 @@ export class LocalWorkerPool {
           if (!tool) {
             toolOutput = `Error: Unknown tool '${fn.name}'`;
             logger.warn(`[WORKER ${workerId}] Unknown tool: ${fn.name}`);
+            consecutiveToolErrors++;
           } else {
             try {
               const args = typeof fn.arguments === "string" ? JSON.parse(fn.arguments) : fn.arguments;
@@ -230,8 +233,16 @@ export class LocalWorkerPool {
               if (fn.name === "write_file" && typeof (args as any).path === "string") {
                 artifacts.push((args as any).path);
               }
+
+              // Track consecutive errors
+              if (toolOutput.startsWith("Error:") || toolOutput.startsWith("write error:") || toolOutput.startsWith("exec error:") || toolOutput.startsWith("read error:")) {
+                consecutiveToolErrors++;
+              } else {
+                consecutiveToolErrors = 0;
+              }
             } catch (error) {
               toolOutput = `Error: ${error instanceof Error ? error.message : String(error)}`;
+              consecutiveToolErrors++;
             }
           }
 
@@ -240,6 +251,13 @@ export class LocalWorkerPool {
             content: toolOutput,
             tool_call_id: toolCall.id,
           });
+        }
+
+        // Bail out if tools keep failing — the worker is stuck
+        if (consecutiveToolErrors >= MAX_CONSECUTIVE_TOOL_ERRORS) {
+          logger.warn(`[WORKER ${workerId}] ${consecutiveToolErrors} consecutive tool errors, bailing out`);
+          failTask(this.config.db, task.id, `Worker stuck: ${consecutiveToolErrors} consecutive tool errors`, true);
+          return;
         }
 
         continue;
@@ -289,13 +307,15 @@ complete this task using the tools available to you and then provide your final 
 RULES:
 - Focus ONLY on the assigned task. Do not deviate.
 - Use exec to run shell commands (install packages, run scripts, etc.)
-- Use write_file to create or modify files.
+- Use write_file to create or modify files. ALWAYS include the "content" field with the full file contents.
 - Use read_file to inspect existing files.
+- Write files to /root/ directory (e.g., /root/project-name/). Do NOT use /home/user/.
 - When done, provide a clear summary of what you accomplished as your final message.
 - If you cannot complete the task, explain why in your final message.
 - Do NOT call tools after you are done. Just give your final text response.
 - Be efficient. Minimize unnecessary tool calls.
-- You have a limited number of turns. Do not waste them.`;
+- You have a limited number of turns. Do not waste them.
+- If a tool call fails, try a different approach. Do NOT repeat the same failing call.`;
   }
 
   private buildTaskPrompt(task: TaskNode): string {
@@ -364,7 +384,11 @@ RULES:
         },
         execute: async (args) => {
           const filePath = args.path as string;
-          const content = args.content as string;
+          const content = args.content as string | undefined;
+
+          if (content == null) {
+            return `write error: content is required but was not provided. Include a "content" field with the file contents.`;
+          }
 
           try {
             await this.config.conway.writeFile(filePath, content);
