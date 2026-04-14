@@ -518,6 +518,7 @@ export class Orchestrator {
 
     // Recover stale tasks: workers that died (process restart, sandbox crash)
     // leave tasks stuck in 'assigned' forever. Detect and reset them.
+    // Use failTask with retry limits to avoid infinite recovery loops.
     if (this.params.isWorkerAlive) {
       const assignedTasks = getTasksByGoal(this.params.db, goal.id)
         .filter((t) => t.status === "assigned" && t.assignedTo);
@@ -527,10 +528,17 @@ export class Orchestrator {
           logger.warn("Recovering stale task from dead worker", {
             taskId: task.id,
             worker: task.assignedTo,
+            retryCount: task.retryCount,
+            maxRetries: task.maxRetries,
           });
-          this.params.db.prepare(
-            "UPDATE task_graph SET status = 'pending', assigned_to = NULL, started_at = NULL WHERE id = ?",
-          ).run(task.id);
+          // Use failTask so retry_count is tracked and maxRetries is respected.
+          // If retries exhausted, the task is marked failed instead of looping forever.
+          failTask(
+            this.params.db,
+            task.id,
+            `Worker ${task.assignedTo} died (not alive)`,
+            true, // shouldRetry — failTask checks retryCount < maxRetries
+          );
         }
       }
     }

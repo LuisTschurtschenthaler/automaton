@@ -827,8 +827,8 @@ export async function runAgentLoop(
           pendingInput = {
             content:
               `LOOP DETECTED: You have called "${currentPattern}" ${MAX_REPETITIVE_TURNS} times in a row with similar results. ` +
-              `STOP repeating yourself. You already know your status. DO SOMETHING DIFFERENT NOW. ` +
-              `Pick ONE concrete task from your genesis prompt and execute it.`,
+              `STOP repeating. If you have nothing productive to do, call the "sleep" tool to conserve credits. ` +
+              `Otherwise, pick ONE concrete task from your genesis prompt and execute it.`,
             source: "system",
           };
           loopWarningPattern = currentPattern;
@@ -840,17 +840,26 @@ export async function runAgentLoop(
         const isAllIdleTools = turn.toolCalls.every((tc) => IDLE_ONLY_TOOLS.has(tc.name));
         if (isAllIdleTools) {
           idleToolTurns++;
-          if (idleToolTurns >= MAX_REPETITIVE_TURNS && !pendingInput) {
+          if (idleToolTurns >= MAX_REPETITIVE_TURNS * 2 && !pendingInput) {
+            // Second threshold: force sleep — the agent is stuck
+            log(config, `[LOOP] Maintenance loop enforcement: ${idleToolTurns} idle turns, forcing sleep.`);
+            db.setKV("sleep_until", new Date(Date.now() + 120_000).toISOString());
+            db.setKV("sleep_reason", "Forced sleep: maintenance loop — only status-check tools for too many turns");
+            db.setAgentState("sleeping");
+            onStateChange?.("sleeping");
+            running = false;
+            break;
+          } else if (idleToolTurns >= MAX_REPETITIVE_TURNS && !pendingInput) {
             log(config, `[LOOP] Maintenance loop detected: ${idleToolTurns} consecutive idle-only turns`);
             pendingInput = {
               content:
                 `MAINTENANCE LOOP DETECTED: Your last ${idleToolTurns} turns only used status-check tools ` +
                 `(${turn.toolCalls.map((tc) => tc.name).join(", ")}). ` +
-                `You already know your status. Review your genesis prompt and SOUL.md, then execute a CONCRETE task. ` +
-                `Write code, create a file, register a service, or build something new.`,
+                `You already know your status. If you have nothing productive to do, call the "sleep" tool ` +
+                `with a duration (e.g. 3600 for 1 hour) to conserve credits. Otherwise, execute a CONCRETE task ` +
+                `from your genesis prompt: write code, create a file, or build something new.`,
               source: "system",
             };
-            idleToolTurns = 0;
           }
         } else {
           idleToolTurns = 0;

@@ -2194,17 +2194,22 @@ Model: ${ctx.inference.getDefaultModel()}
         required: ["query"],
       },
       execute: async (args, ctx) => {
-        const results = await ctx.conway.searchDomains(
-          args.query as string,
-          args.tlds as string | undefined,
-        );
-        if (results.length === 0) return "No results found.";
-        return results
-          .map(
-            (d) =>
-              `${d.domain}: ${d.available ? "AVAILABLE" : "taken"}${d.registrationPrice != null ? ` ($${(d.registrationPrice / 100).toFixed(2)}/yr)` : ""}`,
-          )
-          .join("\n");
+        try {
+          const results = await ctx.conway.searchDomains(
+            args.query as string,
+            args.tlds as string | undefined,
+          );
+          if (results.length === 0) return "No results found.";
+          return results
+            .map(
+              (d) =>
+                `${d.domain}: ${d.available ? "AVAILABLE" : "taken"}${d.registrationPrice != null ? ` ($${(d.registrationPrice / 100).toFixed(2)}/yr)` : ""}`,
+            )
+            .join("\n");
+        } catch (err: any) {
+          if (err?.status === 404) return "Domain search is not available on this Conway API instance. Use a third-party domain registrar instead.";
+          throw err;
+        }
       },
     },
     {
@@ -2228,11 +2233,16 @@ Model: ${ctx.inference.getDefaultModel()}
         required: ["domain"],
       },
       execute: async (args, ctx) => {
-        const reg = await ctx.conway.registerDomain(
-          args.domain as string,
-          (args.years as number) || 1,
-        );
-        return `Domain registered: ${reg.domain} (status: ${reg.status}${reg.expiresAt ? `, expires: ${reg.expiresAt}` : ""}${reg.transactionId ? `, tx: ${reg.transactionId}` : ""})`;
+        try {
+          const reg = await ctx.conway.registerDomain(
+            args.domain as string,
+            (args.years as number) || 1,
+          );
+          return `Domain registered: ${reg.domain} (status: ${reg.status}${reg.expiresAt ? `, expires: ${reg.expiresAt}` : ""}${reg.transactionId ? `, tx: ${reg.transactionId}` : ""})`;
+        } catch (err: any) {
+          if (err?.status === 404) return "Domain registration is not available on this Conway API instance. Use a third-party domain registrar instead.";
+          throw err;
+        }
       },
     },
     {
@@ -2280,43 +2290,48 @@ Model: ${ctx.inference.getDefaultModel()}
         const action = args.action as string;
         const domain = args.domain as string;
 
-        if (action === "list") {
-          const records = await ctx.conway.listDnsRecords(domain);
-          if (records.length === 0)
-            return `No DNS records found for ${domain}.`;
-          return records
-            .map(
-              (r) =>
-                `[${r.id}] ${r.type} ${r.host} -> ${r.value} (TTL: ${r.ttl || "default"})`,
-            )
-            .join("\n");
-        }
-
-        if (action === "add") {
-          const type = args.type as string;
-          const host = args.host as string;
-          const value = args.value as string;
-          if (!type || !host || !value) {
-            return "Required for add: type, host, value";
+        try {
+          if (action === "list") {
+            const records = await ctx.conway.listDnsRecords(domain);
+            if (records.length === 0)
+              return `No DNS records found for ${domain}.`;
+            return records
+              .map(
+                (r) =>
+                  `[${r.id}] ${r.type} ${r.host} -> ${r.value} (TTL: ${r.ttl || "default"})`,
+              )
+              .join("\n");
           }
-          const record = await ctx.conway.addDnsRecord(
-            domain,
-            type,
-            host,
-            value,
-            args.ttl as number | undefined,
-          );
-          return `DNS record added: [${record.id}] ${record.type} ${record.host} -> ${record.value}`;
-        }
 
-        if (action === "delete") {
-          const recordId = args.record_id as string;
-          if (!recordId) return "Required for delete: record_id";
-          await ctx.conway.deleteDnsRecord(domain, recordId);
-          return `DNS record ${recordId} deleted from ${domain}`;
-        }
+          if (action === "add") {
+            const type = args.type as string;
+            const host = args.host as string;
+            const value = args.value as string;
+            if (!type || !host || !value) {
+              return "Required for add: type, host, value";
+            }
+            const record = await ctx.conway.addDnsRecord(
+              domain,
+              type,
+              host,
+              value,
+              args.ttl as number | undefined,
+            );
+            return `DNS record added: [${record.id}] ${record.type} ${record.host} -> ${record.value}`;
+          }
 
-        return `Unknown action: ${action}. Use list, add, or delete.`;
+          if (action === "delete") {
+            const recordId = args.record_id as string;
+            if (!recordId) return "Required for delete: record_id";
+            await ctx.conway.deleteDnsRecord(domain, recordId);
+            return `DNS record ${recordId} deleted from ${domain}`;
+          }
+
+          return `Unknown action: ${action}. Use list, add, or delete.`;
+        } catch (err: any) {
+          if (err?.status === 404) return `DNS management is not available on this Conway API instance. Configure DNS through your domain registrar directly.`;
+          throw err;
+        }
       },
     },
 

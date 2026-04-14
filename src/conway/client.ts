@@ -462,7 +462,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
   ): Promise<DomainSearchResult[]> => {
     const params = new URLSearchParams({ query });
     if (tlds) params.set("tlds", tlds);
-    const result = await request("GET", `/v1/domains/search?${params}`);
+    const result = await request("GET", `/v1/domains/search?${params}`, undefined, { retries404: 0 });
     const results = result.results || result.domains || [];
     return results.map((d: any) => ({
       domain: d.domain,
@@ -480,7 +480,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
     const result = await request("POST", "/v1/domains/register", {
       domain,
       years,
-    });
+    }, { retries404: 0 });
     return {
       domain: result.domain || domain,
       status: result.status || "registered",
@@ -493,6 +493,8 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
     const result = await request(
       "GET",
       `/v1/domains/${encodeURIComponent(domain)}/dns`,
+      undefined,
+      { retries404: 0 },
     );
     const records = result.records || result || [];
     return (Array.isArray(records) ? records : []).map((r: any) => ({
@@ -516,6 +518,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
       "POST",
       `/v1/domains/${encodeURIComponent(domain)}/dns`,
       { type, host, value, ttl: ttl || 3600 },
+      { retries404: 0 },
     );
     return {
       id: result.id || result.record_id || "",
@@ -533,6 +536,8 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
     await request(
       "DELETE",
       `/v1/domains/${encodeURIComponent(domain)}/dns/${encodeURIComponent(recordId)}`,
+      undefined,
+      { retries404: 0 },
     );
   };
 
