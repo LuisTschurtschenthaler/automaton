@@ -13,15 +13,18 @@ import { createPathProtectionRules } from "./path-protection.js";
 import { createFinancialRules } from "./financial.js";
 import { createAuthorityRules } from "./authority.js";
 import { createRateLimitRules } from "./rate-limits.js";
+import { createEuComplianceRules } from "./eu-compliance.js";
 
 /**
  * Create the default set of policy rules.
  * Each sub-phase adds its rules here.
+ * EU compliance rules are mandatory and loaded first (highest priority).
  */
 export function createDefaultRules(
   treasuryPolicy: TreasuryPolicy = DEFAULT_TREASURY_POLICY,
 ): PolicyRule[] {
   return [
+    ...createEuComplianceRules(),
     ...createValidationRules(),
     ...createCommandSafetyRules(),
     ...createPathProtectionRules(),
