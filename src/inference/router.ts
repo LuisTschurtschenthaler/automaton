@@ -65,9 +65,9 @@ export class InferenceRouter {
   ): Promise<InferenceResult> {
     const { messages, taskType, tier, sessionId, turnId, tools } = request;
 
-    // 1. Select model from routing matrix
-    const model = this.selectModel(tier, taskType);
-    if (!model) {
+    // 1. Gather all eligible model candidates (routing matrix + user-configured fallbacks)
+    const candidates = this.selectCandidates(tier, taskType);
+    if (candidates.length === 0) {
       return {
         content: "",
         model: "none",
@@ -81,33 +81,21 @@ export class InferenceRouter {
       };
     }
 
-    // 2. Estimate cost and check budget
-    const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
-    const estimatedCostCents = Math.ceil(
-      (estimatedTokens / 1000) * model.costPer1kInput / 100 +
-      (request.maxTokens || 1000) / 1000 * model.costPer1kOutput / 100,
-    );
+    let lastError: Error | undefined;
 
-    const budgetCheck = this.budget.checkBudget(estimatedCostCents, model.modelId);
-    if (!budgetCheck.allowed) {
-      return {
-        content: `Budget exceeded: ${budgetCheck.reason}`,
-        model: model.modelId,
-        provider: model.provider,
-        inputTokens: 0,
-        outputTokens: 0,
-        costCents: 0,
-        latencyMs: 0,
-        finishReason: "budget_exceeded",
-      };
-    }
+    for (const model of candidates) {
+      // 2. Estimate cost and check budget
+      const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+      const estimatedCostCents = Math.ceil(
+        (estimatedTokens / 1000) * model.costPer1kInput / 100 +
+        (request.maxTokens || 1000) / 1000 * model.costPer1kOutput / 100,
+      );
 
-    // 3. Check session budget
-    if (request.sessionId && this.budget.config.sessionBudgetCents > 0) {
-      const sessionCost = this.budget.getSessionCost(request.sessionId);
-      if (sessionCost + estimatedCostCents > this.budget.config.sessionBudgetCents) {
+      const budgetCheck = this.budget.checkBudget(estimatedCostCents, model.modelId);
+      if (!budgetCheck.allowed) {
+        // Budget exceeded is terminal — no point trying other models
         return {
-          content: `Session budget exceeded: ${sessionCost}c spent + ${estimatedCostCents}c estimated > ${this.budget.config.sessionBudgetCents}c limit`,
+          content: `Budget exceeded: ${budgetCheck.reason}`,
           model: model.modelId,
           provider: model.provider,
           inputTokens: 0,
@@ -117,57 +105,67 @@ export class InferenceRouter {
           finishReason: "budget_exceeded",
         };
       }
-    }
 
-    // 4. Transform messages for provider
-    const transformedMessages = this.transformMessagesForProvider(messages, model.provider);
+      // 3. Check session budget
+      if (request.sessionId && this.budget.config.sessionBudgetCents > 0) {
+        const sessionCost = this.budget.getSessionCost(request.sessionId);
+        if (sessionCost + estimatedCostCents > this.budget.config.sessionBudgetCents) {
+          return {
+            content: `Session budget exceeded: ${sessionCost}c spent + ${estimatedCostCents}c estimated > ${this.budget.config.sessionBudgetCents}c limit`,
+            model: model.modelId,
+            provider: model.provider,
+            inputTokens: 0,
+            outputTokens: 0,
+            costCents: 0,
+            latencyMs: 0,
+            finishReason: "budget_exceeded",
+          };
+        }
+      }
 
-    // 5. Build inference options
-    const preference = this.getPreference(tier, taskType);
-    const maxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
-    const timeout = TASK_TIMEOUTS[taskType] || 120_000;
+      // 4. Transform messages for provider
+      const transformedMessages = this.transformMessagesForProvider(messages, model.provider);
 
-    const inferenceOptions: any = {
-      model: model.modelId,
-      maxTokens,
-      tools: tools,
-    };
+      // 5. Build inference options
+      const preference = this.getPreference(tier, taskType);
+      const maxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
+      const timeout = TASK_TIMEOUTS[taskType] || 120_000;
 
-    // 6. Call inference with timeout
-    const startTime = Date.now();
-    let response: any;
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+      const inferenceOptions: any = {
+        model: model.modelId,
+        maxTokens,
+        tools: tools,
+      };
+
+      // 6. Call inference with timeout
+      const startTime = Date.now();
+      let response: any;
       try {
-        inferenceOptions.signal = controller.signal;
-        response = await inferenceChat(transformedMessages, inferenceOptions);
-      } finally {
-        clearTimeout(timer);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+          inferenceOptions.signal = controller.signal;
+          response = await inferenceChat(transformedMessages, inferenceOptions);
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch (error: any) {
+        const latencyMs = Date.now() - startTime;
+        if (error.name === "AbortError") {
+          // Timeout — try next candidate
+          lastError = new Error(`Inference timeout after ${timeout}ms (model: ${model.modelId})`);
+          continue;
+        }
+        // Retryable provider errors — try next candidate
+        lastError = error;
+        continue;
       }
-    } catch (error: any) {
       const latencyMs = Date.now() - startTime;
-      // If fallback is enabled, try next candidate
-      if (error.name === "AbortError") {
-        return {
-          content: `Inference timeout after ${timeout}ms`,
-          model: model.modelId,
-          provider: model.provider,
-          inputTokens: 0,
-          outputTokens: 0,
-          costCents: 0,
-          latencyMs,
-          finishReason: "timeout",
-        };
-      }
-      throw error;
-    }
-    const latencyMs = Date.now() - startTime;
 
-    // 7. Calculate actual cost
-    const inputTokens = response.usage?.promptTokens || 0;
-    const outputTokens = response.usage?.completionTokens || 0;
-    const actualCostCents = Math.ceil(
+      // 7. Calculate actual cost
+      const inputTokens = response.usage?.promptTokens || 0;
+      const outputTokens = response.usage?.completionTokens || 0;
+      const actualCostCents = Math.ceil(
       (inputTokens / 1000) * model.costPer1kInput / 100 +
       (outputTokens / 1000) * model.costPer1kOutput / 100,
     );
@@ -199,36 +197,38 @@ export class InferenceRouter {
       toolCalls: response.toolCalls,
       finishReason: response.finishReason || "stop",
     };
+    } // end for-each candidate
+
+    // All candidates failed — re-throw the last error
+    throw lastError || new Error("All inference candidates failed");
   }
 
   /**
-   * Select the best model for a given tier and task type.
-   *
-   * Priority:
-   *   1. First routing-matrix candidate present in the registry
-   *   2. User-configured model(s) from ModelStrategyConfig
-   *      (free/Ollama models are allowed at any tier, including dead)
+   * Return all eligible model candidates for a given tier and task type,
+   * in priority order. Used by route() to try each candidate in sequence.
    */
-  selectModel(tier: SurvivalTier, taskType: InferenceTaskType): ModelEntry | null {
+  selectCandidates(tier: SurvivalTier, taskType: InferenceTaskType): ModelEntry[] {
     const TIER_ORDER: Record<string, number> = {
       dead: 0, critical: 1, low_compute: 2, normal: 3, high: 4,
     };
-
     const tierRank = TIER_ORDER[tier] ?? 0;
+    const seen = new Set<string>();
+    const result: ModelEntry[] = [];
 
-    // 1. Try routing-matrix candidates
+    // 1. Routing-matrix candidates
     const preference = this.getPreference(tier, taskType);
     if (preference && preference.candidates.length > 0) {
       for (const candidateId of preference.candidates) {
+        if (seen.has(candidateId)) continue;
         const entry = this.registry.get(candidateId);
         if (entry && entry.enabled && isProviderAvailable(entry.provider)) {
-          return entry;
+          result.push(entry);
+          seen.add(candidateId);
         }
       }
     }
 
-    // 2. Fall back to user-configured models.
-    //    This handles local/Ollama setups where routing-matrix models are absent.
+    // 2. User-configured fallback models
     const strategy = this.budget.config;
     const fallbackIds: (string | undefined)[] =
       tier === "critical" || tier === "dead"
@@ -236,18 +236,28 @@ export class InferenceRouter {
         : [strategy.inferenceModel, strategy.lowComputeModel, strategy.criticalModel];
 
     for (const modelId of fallbackIds) {
-      if (!modelId) continue;
+      if (!modelId || seen.has(modelId)) continue;
       const entry = this.registry.get(modelId);
       if (!entry || !entry.enabled) continue;
       if (!isProviderAvailable(entry.provider)) continue;
       const isFree = entry.costPer1kInput === 0 && entry.costPer1kOutput === 0;
       const tierOk = tierRank >= (TIER_ORDER[entry.tierMinimum] ?? 0);
       if (isFree || tierOk) {
-        return entry;
+        result.push(entry);
+        seen.add(modelId);
       }
     }
 
-    return null;
+    return result;
+  }
+
+  /**
+   * Select the best model for a given tier and task type.
+   * Returns the first eligible candidate, or null if none available.
+   */
+  selectModel(tier: SurvivalTier, taskType: InferenceTaskType): ModelEntry | null {
+    const candidates = this.selectCandidates(tier, taskType);
+    return candidates[0] ?? null;
   }
 
   /**

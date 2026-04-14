@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { runAgentLoop } from "../agent/loop.js";
+import { runAgentLoop, loopUtils } from "../agent/loop.js";
 import {
   MockInferenceClient,
   MockConwayClient,
@@ -29,10 +29,13 @@ describe("Agent Loop", () => {
     conway = new MockConwayClient();
     identity = createTestIdentity();
     config = createTestConfig();
+    // Skip real delays in error backoff
+    vi.spyOn(loopUtils, "sleep").mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     db.close();
+    vi.restoreAllMocks();
   });
 
   it("exec tool runs and is persisted", async () => {

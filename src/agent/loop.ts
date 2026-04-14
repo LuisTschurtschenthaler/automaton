@@ -66,11 +66,17 @@ import { EventStream } from "../memory/event-stream.js";
 import { KnowledgeStore } from "../memory/knowledge-store.js";
 import { ProviderRegistry } from "../inference/provider-registry.js";
 import { UnifiedInferenceClient } from "../inference/inference-client.js";
+import { CircuitOpenError } from "../conway/http-client.js";
 
 const logger = createLogger("loop");
 const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_CONSECUTIVE_ERRORS = 5;
 const MAX_REPETITIVE_TURNS = 3;
+
+/** Exported for test mocking — allows tests to skip real delays. */
+export const loopUtils = {
+  sleep: (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)),
+};
 
 export interface AgentLoopOptions {
   identity: AutomatonIdentity;
@@ -114,6 +120,26 @@ export async function runAgentLoop(
     ...DEFAULT_MODEL_STRATEGY_CONFIG,
     ...(config.modelStrategy ?? {}),
   };
+
+  // Bridge automaton config API keys to env vars BEFORE registry/router
+  // initialization. The router's isProviderAvailable() checks process.env,
+  // and createInferenceClient's resolveInferenceBackend also uses them.
+  if (config.anthropicApiKey && !process.env.ANTHROPIC_API_KEY) {
+    process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
+  }
+  if (config.openaiApiKey && !process.env.OPENAI_API_KEY) {
+    process.env.OPENAI_API_KEY = config.openaiApiKey;
+  }
+  if (config.conwayApiKey && !process.env.CONWAY_API_KEY) {
+    process.env.CONWAY_API_KEY = config.conwayApiKey;
+  }
+  // If no OpenAI key is set but Conway key is available, use Conway as
+  // the OpenAI provider (Conway Compute is OpenAI API-compatible).
+  if (!process.env.OPENAI_API_KEY && config.conwayApiKey) {
+    process.env.OPENAI_API_KEY = config.conwayApiKey;
+    process.env.OPENAI_BASE_URL = `${config.conwayApiUrl}/v1`;
+  }
+
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
 
@@ -125,6 +151,44 @@ export async function runAgentLoop(
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
   const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
 
+  // Validate configured models are actually reachable with available API keys
+  {
+    const configuredModels = [
+      { label: "inferenceModel", id: modelStrategyConfig.inferenceModel },
+      { label: "lowComputeModel", id: modelStrategyConfig.lowComputeModel },
+      { label: "criticalModel", id: modelStrategyConfig.criticalModel },
+    ];
+    const availableProviders: string[] = [];
+    if (process.env.ANTHROPIC_API_KEY) availableProviders.push("anthropic");
+    if (process.env.OPENAI_API_KEY) availableProviders.push("openai");
+    if (process.env.CONWAY_API_KEY) availableProviders.push("conway");
+    if (ollamaBaseUrl) availableProviders.push("ollama");
+    logger.info(`Available inference providers: ${availableProviders.join(", ") || "none"}`);
+
+    for (const { label, id } of configuredModels) {
+      if (!id) continue;
+      const entry = modelRegistry.get(id);
+      if (!entry) {
+        logger.warn(`${label} "${id}" not found in model registry — will fall back to routing matrix candidates`);
+      } else if (!entry.enabled) {
+        logger.warn(`${label} "${id}" is disabled in registry`);
+      } else {
+        const providerEnvVars: Record<string, string> = {
+          openai: "OPENAI_API_KEY",
+          anthropic: "ANTHROPIC_API_KEY",
+          conway: "CONWAY_API_KEY",
+        };
+        const envVar = providerEnvVars[entry.provider];
+        const hasKey = !envVar || (process.env[envVar] && process.env[envVar]!.length > 0);
+        if (!hasKey) {
+          logger.warn(`${label} "${id}" requires ${envVar} but it is not set — model will be skipped`);
+        } else {
+          logger.info(`${label} "${id}" → provider: ${entry.provider} ✓`);
+        }
+      }
+    }
+  }
+
   // Optional orchestration bootstrap (requires V9 goals/task tables)
   let planModeController: PlanModeController | undefined;
   let orchestrator: Orchestrator | undefined;
@@ -134,29 +198,6 @@ export async function runAgentLoop(
   if (hasTable(db.raw, "goals")) {
     try {
       planModeController = new PlanModeController(db.raw);
-
-      // Bridge automaton config API keys to env vars for the provider registry.
-      // The registry reads keys from process.env; the automaton config may have
-      // them from config.json or Conway provisioning.
-      if (config.openaiApiKey && !process.env.OPENAI_API_KEY) {
-        process.env.OPENAI_API_KEY = config.openaiApiKey;
-      }
-      if (config.anthropicApiKey && !process.env.ANTHROPIC_API_KEY) {
-        process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
-      }
-      // Conway Compute API is OpenAI-compatible. Use it as fallback when no
-      // direct OpenAI key is available. The conwayApiKey is always present
-      // (required for sandbox operations), so this ensures the orchestrator
-      // can always make inference calls.
-      if (config.conwayApiKey && !process.env.CONWAY_API_KEY) {
-        process.env.CONWAY_API_KEY = config.conwayApiKey;
-      }
-      // If no OpenAI key is set but Conway key is available, use Conway as
-      // the OpenAI provider (Conway Compute is OpenAI API-compatible).
-      if (!process.env.OPENAI_API_KEY && config.conwayApiKey) {
-        process.env.OPENAI_API_KEY = config.conwayApiKey;
-        process.env.OPENAI_BASE_URL = `${config.conwayApiUrl}/v1`;
-      }
 
       const providersPath = path.join(
         process.env.HOME || process.cwd(),
@@ -919,6 +960,21 @@ export async function runAgentLoop(
         }
       }
 
+      // Terminal errors: insufficient quota, auth failures, etc.
+      // Retrying won't help — sleep immediately with longer backoff.
+      const isTerminalError =
+        err.message?.includes("insufficient_quota") ||
+        err.message?.includes("invalid_api_key") ||
+        (err.message?.includes("401") && err.message?.includes("Inference error"));
+      if (isTerminalError) {
+        log(config, `[TERMINAL] Provider error is permanent. Sleeping 10 min.`);
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+        db.setKV("sleep_until", new Date(Date.now() + 600_000).toISOString());
+        running = false;
+        break;
+      }
+
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         log(
           config,
@@ -931,6 +987,19 @@ export async function runAgentLoop(
           new Date(Date.now() + 300_000).toISOString(),
         );
         running = false;
+      } else if (running) {
+        // Backoff between consecutive errors to avoid rapid burn-through.
+        // Circuit breaker open: wait until it resets (capped at 120s).
+        // Other errors: exponential backoff 2s → 4s → 8s → 16s.
+        let backoffMs: number;
+        if (err instanceof CircuitOpenError) {
+          backoffMs = Math.min(Math.max(err.resetAt - Date.now(), 1000), 120_000);
+          log(config, `[BACKOFF] Circuit breaker open. Waiting ${Math.round(backoffMs / 1000)}s for reset.`);
+        } else {
+          backoffMs = Math.min(2000 * Math.pow(2, consecutiveErrors - 1), 60_000);
+          log(config, `[BACKOFF] Error ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}. Waiting ${Math.round(backoffMs / 1000)}s.`);
+        }
+        await loopUtils.sleep(backoffMs);
       }
     }
   }
