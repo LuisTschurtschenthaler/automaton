@@ -88,6 +88,10 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   db.pragma("journal_mode = WAL");
   db.pragma("wal_autocheckpoint = 1000");
   db.pragma("foreign_keys = ON");
+  // Performance PRAGMAs: memory-mapped I/O & larger cache for faster reads
+  db.pragma("mmap_size = 268435456"); // 256 MB
+  db.pragma("cache_size = -64000");   // 64 MB
+  db.pragma("synchronous = NORMAL");  // Safe with WAL, faster than FULL
 
   // Integrity check on startup
   const integrity = db.pragma("integrity_check") as { integrity_check: string }[];
@@ -115,28 +119,98 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
     ).run(SCHEMA_VERSION);
   }
 
+  // ─── Prepared Statements (cached for hot paths) ─────────────
+
+  const stmt = {
+    getIdentity: db.prepare("SELECT value FROM identity WHERE key = ?"),
+    setIdentity: db.prepare("INSERT OR REPLACE INTO identity (key, value) VALUES (?, ?)"),
+    insertTurn: db.prepare(
+      `INSERT INTO turns (id, timestamp, state, input, input_source, thinking, tool_calls, token_usage, cost_cents)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    getRecentTurns: db.prepare("SELECT * FROM turns ORDER BY timestamp DESC LIMIT ?"),
+    getTurnById: db.prepare("SELECT * FROM turns WHERE id = ?"),
+    getTurnCount: db.prepare("SELECT COUNT(*) as count FROM turns"),
+    insertToolCall: db.prepare(
+      `INSERT INTO tool_calls (id, turn_id, name, arguments, result, duration_ms, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    getToolCallsForTurn: db.prepare("SELECT * FROM tool_calls WHERE turn_id = ?"),
+    getHeartbeatEntries: db.prepare("SELECT * FROM heartbeat_entries"),
+    upsertHeartbeatEntry: db.prepare(
+      `INSERT OR REPLACE INTO heartbeat_entries (name, schedule, task, enabled, last_run, next_run, params, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    ),
+    updateHeartbeatLastRun: db.prepare("UPDATE heartbeat_entries SET last_run = ?, updated_at = datetime('now') WHERE name = ?"),
+    insertTransaction: db.prepare(
+      `INSERT INTO transactions (id, type, amount_cents, balance_after_cents, description)
+       VALUES (?, ?, ?, ?, ?)`,
+    ),
+    getRecentTransactions: db.prepare("SELECT * FROM transactions ORDER BY created_at DESC LIMIT ?"),
+    getInstalledTools: db.prepare("SELECT * FROM installed_tools WHERE enabled = 1"),
+    installTool: db.prepare(
+      `INSERT OR REPLACE INTO installed_tools (id, name, type, config, installed_at, enabled)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ),
+    removeTool: db.prepare("UPDATE installed_tools SET enabled = 0 WHERE id = ?"),
+    insertModification: db.prepare(
+      `INSERT INTO modifications (id, timestamp, type, description, file_path, diff, reversible)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    getRecentModifications: db.prepare("SELECT * FROM modifications ORDER BY timestamp DESC LIMIT ?"),
+    getKV: db.prepare("SELECT value FROM kv WHERE key = ?"),
+    setKV: db.prepare("INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, datetime('now'))"),
+    deleteKV: db.prepare("DELETE FROM kv WHERE key = ?"),
+    deleteKVReturning: db.prepare("DELETE FROM kv WHERE key = ? RETURNING value"),
+    getSkillsAll: db.prepare("SELECT * FROM skills"),
+    getSkillsEnabled: db.prepare("SELECT * FROM skills WHERE enabled = 1"),
+    getSkillByName: db.prepare("SELECT * FROM skills WHERE name = ?"),
+    upsertSkill: db.prepare(
+      `INSERT OR REPLACE INTO skills (name, description, auto_activate, requires, instructions, source, path, enabled, installed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    removeSkill: db.prepare("UPDATE skills SET enabled = 0 WHERE name = ?"),
+    getChildren: db.prepare("SELECT * FROM children ORDER BY created_at DESC"),
+    getChildById: db.prepare("SELECT * FROM children WHERE id = ?"),
+    insertChild: db.prepare(
+      `INSERT INTO children (id, name, address, sandbox_id, genesis_prompt, creator_message, funded_amount_cents, status, created_at, chain_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    updateChildStatus: db.prepare("UPDATE children SET status = ?, last_checked = datetime('now') WHERE id = ?"),
+    getRegistryEntry: db.prepare("SELECT * FROM registry LIMIT 1"),
+    setRegistryEntry: db.prepare(
+      `INSERT OR REPLACE INTO registry (agent_id, agent_uri, chain, contract_address, tx_hash, registered_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ),
+    insertReputation: db.prepare(
+      `INSERT INTO reputation (id, from_agent, to_agent, score, comment, tx_hash)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ),
+    getReputationByAgent: db.prepare("SELECT * FROM reputation WHERE to_agent = ? ORDER BY created_at DESC"),
+    getReputationAll: db.prepare("SELECT * FROM reputation ORDER BY created_at DESC"),
+    insertInboxMessage: db.prepare(
+      `INSERT OR IGNORE INTO inbox_messages (id, from_address, content, received_at, reply_to)
+       VALUES (?, ?, ?, ?, ?)`,
+    ),
+    getUnprocessedInbox: db.prepare("SELECT * FROM inbox_messages WHERE processed_at IS NULL ORDER BY received_at ASC LIMIT ?"),
+    markInboxProcessed: db.prepare("UPDATE inbox_messages SET processed_at = datetime('now') WHERE id = ?"),
+  };
+
   // ─── Identity ────────────────────────────────────────────────
 
   const getIdentity = (key: string): string | undefined => {
-    const row = db
-      .prepare("SELECT value FROM identity WHERE key = ?")
-      .get(key) as { value: string } | undefined;
+    const row = stmt.getIdentity.get(key) as { value: string } | undefined;
     return row?.value;
   };
 
   const setIdentity = (key: string, value: string): void => {
-    db.prepare(
-      "INSERT OR REPLACE INTO identity (key, value) VALUES (?, ?)",
-    ).run(key, value);
+    stmt.setIdentity.run(key, value);
   };
 
   // ─── Turns ───────────────────────────────────────────────────
 
   const insertTurn = (turn: AgentTurn): void => {
-    db.prepare(
-      `INSERT INTO turns (id, timestamp, state, input, input_source, thinking, tool_calls, token_usage, cost_cents)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.insertTurn.run(
       turn.id,
       turn.timestamp,
       turn.state,
@@ -150,25 +224,17 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const getRecentTurns = (limit: number): AgentTurn[] => {
-    const rows = db
-      .prepare(
-        "SELECT * FROM turns ORDER BY timestamp DESC LIMIT ?",
-      )
-      .all(limit) as any[];
+    const rows = stmt.getRecentTurns.all(limit) as any[];
     return rows.map(deserializeTurn).reverse();
   };
 
   const getTurnById = (id: string): AgentTurn | undefined => {
-    const row = db
-      .prepare("SELECT * FROM turns WHERE id = ?")
-      .get(id) as any | undefined;
+    const row = stmt.getTurnById.get(id) as any | undefined;
     return row ? deserializeTurn(row) : undefined;
   };
 
   const getTurnCount = (): number => {
-    const row = db
-      .prepare("SELECT COUNT(*) as count FROM turns")
-      .get() as { count: number };
+    const row = stmt.getTurnCount.get() as { count: number };
     return row.count;
   };
 
@@ -178,10 +244,7 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
     turnId: string,
     call: ToolCallResult,
   ): void => {
-    db.prepare(
-      `INSERT INTO tool_calls (id, turn_id, name, arguments, result, duration_ms, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.insertToolCall.run(
       call.id,
       turnId,
       call.name,
@@ -193,26 +256,19 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const getToolCallsForTurn = (turnId: string): ToolCallResult[] => {
-    const rows = db
-      .prepare("SELECT * FROM tool_calls WHERE turn_id = ?")
-      .all(turnId) as any[];
+    const rows = stmt.getToolCallsForTurn.all(turnId) as any[];
     return rows.map(deserializeToolCall);
   };
 
   // ─── Heartbeat ───────────────────────────────────────────────
 
   const getHeartbeatEntries = (): HeartbeatEntry[] => {
-    const rows = db
-      .prepare("SELECT * FROM heartbeat_entries")
-      .all() as any[];
+    const rows = stmt.getHeartbeatEntries.all() as any[];
     return rows.map(deserializeHeartbeatEntry);
   };
 
   const upsertHeartbeatEntry = (entry: HeartbeatEntry): void => {
-    db.prepare(
-      `INSERT OR REPLACE INTO heartbeat_entries (name, schedule, task, enabled, last_run, next_run, params, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    ).run(
+    stmt.upsertHeartbeatEntry.run(
       entry.name,
       entry.schedule,
       entry.task,
@@ -227,18 +283,13 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
     name: string,
     timestamp: string,
   ): void => {
-    db.prepare(
-      "UPDATE heartbeat_entries SET last_run = ?, updated_at = datetime('now') WHERE name = ?",
-    ).run(timestamp, name);
+    stmt.updateHeartbeatLastRun.run(timestamp, name);
   };
 
   // ─── Transactions ────────────────────────────────────────────
 
   const insertTransaction = (txn: Transaction): void => {
-    db.prepare(
-      `INSERT INTO transactions (id, type, amount_cents, balance_after_cents, description)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.insertTransaction.run(
       txn.id,
       txn.type,
       txn.amountCents ?? null,
@@ -248,28 +299,19 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const getRecentTransactions = (limit: number): Transaction[] => {
-    const rows = db
-      .prepare(
-        "SELECT * FROM transactions ORDER BY created_at DESC LIMIT ?",
-      )
-      .all(limit) as any[];
+    const rows = stmt.getRecentTransactions.all(limit) as any[];
     return rows.map(deserializeTransaction).reverse();
   };
 
   // ─── Installed Tools ─────────────────────────────────────────
 
   const getInstalledTools = (): InstalledTool[] => {
-    const rows = db
-      .prepare("SELECT * FROM installed_tools WHERE enabled = 1")
-      .all() as any[];
+    const rows = stmt.getInstalledTools.all() as any[];
     return rows.map(deserializeInstalledTool);
   };
 
   const installTool = (tool: InstalledTool): void => {
-    db.prepare(
-      `INSERT OR REPLACE INTO installed_tools (id, name, type, config, installed_at, enabled)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.installTool.run(
       tool.id,
       tool.name,
       tool.type,
@@ -280,18 +322,13 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const removeTool = (id: string): void => {
-    db.prepare(
-      "UPDATE installed_tools SET enabled = 0 WHERE id = ?",
-    ).run(id);
+    stmt.removeTool.run(id);
   };
 
   // ─── Modifications ───────────────────────────────────────────
 
   const insertModification = (mod: ModificationEntry): void => {
-    db.prepare(
-      `INSERT INTO modifications (id, timestamp, type, description, file_path, diff, reversible)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.insertModification.run(
       mod.id,
       mod.timestamp,
       mod.type,
@@ -305,62 +342,44 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   const getRecentModifications = (
     limit: number,
   ): ModificationEntry[] => {
-    const rows = db
-      .prepare(
-        "SELECT * FROM modifications ORDER BY timestamp DESC LIMIT ?",
-      )
-      .all(limit) as any[];
+    const rows = stmt.getRecentModifications.all(limit) as any[];
     return rows.map(deserializeModification).reverse();
   };
 
   // ─── Key-Value Store ─────────────────────────────────────────
 
   const getKV = (key: string): string | undefined => {
-    const row = db
-      .prepare("SELECT value FROM kv WHERE key = ?")
-      .get(key) as { value: string } | undefined;
+    const row = stmt.getKV.get(key) as { value: string } | undefined;
     return row?.value;
   };
 
   const setKV = (key: string, value: string): void => {
-    db.prepare(
-      "INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-    ).run(key, value);
+    stmt.setKV.run(key, value);
   };
 
   const deleteKV = (key: string): void => {
-    db.prepare("DELETE FROM kv WHERE key = ?").run(key);
+    stmt.deleteKV.run(key);
   };
 
   const deleteKVReturning = (key: string): string | undefined => {
-    const row = db
-      .prepare("DELETE FROM kv WHERE key = ? RETURNING value")
-      .get(key) as { value: string } | undefined;
+    const row = stmt.deleteKVReturning.get(key) as { value: string } | undefined;
     return row?.value;
   };
 
   // ─── Skills ─────────────────────────────────────────────────
 
   const getSkills = (enabledOnly?: boolean): Skill[] => {
-    const query = enabledOnly
-      ? "SELECT * FROM skills WHERE enabled = 1"
-      : "SELECT * FROM skills";
-    const rows = db.prepare(query).all() as any[];
+    const rows = (enabledOnly ? stmt.getSkillsEnabled : stmt.getSkillsAll).all() as any[];
     return rows.map(deserializeSkill);
   };
 
   const getSkillByName = (name: string): Skill | undefined => {
-    const row = db
-      .prepare("SELECT * FROM skills WHERE name = ?")
-      .get(name) as any | undefined;
+    const row = stmt.getSkillByName.get(name) as any | undefined;
     return row ? deserializeSkill(row) : undefined;
   };
 
   const upsertSkill = (skill: Skill): void => {
-    db.prepare(
-      `INSERT OR REPLACE INTO skills (name, description, auto_activate, requires, instructions, source, path, enabled, installed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.upsertSkill.run(
       skill.name,
       skill.description,
       skill.autoActivate ? 1 : 0,
@@ -374,30 +393,23 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const removeSkill = (name: string): void => {
-    db.prepare("UPDATE skills SET enabled = 0 WHERE name = ?").run(name);
+    stmt.removeSkill.run(name);
   };
 
   // ─── Children ──────────────────────────────────────────────
 
   const getChildren = (): ChildAutomaton[] => {
-    const rows = db
-      .prepare("SELECT * FROM children ORDER BY created_at DESC")
-      .all() as any[];
+    const rows = stmt.getChildren.all() as any[];
     return rows.map(deserializeChild);
   };
 
   const getChildById = (id: string): ChildAutomaton | undefined => {
-    const row = db
-      .prepare("SELECT * FROM children WHERE id = ?")
-      .get(id) as any | undefined;
+    const row = stmt.getChildById.get(id) as any | undefined;
     return row ? deserializeChild(row) : undefined;
   };
 
   const insertChild = (child: ChildAutomaton): void => {
-    db.prepare(
-      `INSERT INTO children (id, name, address, sandbox_id, genesis_prompt, creator_message, funded_amount_cents, status, created_at, chain_type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.insertChild.run(
       child.id,
       child.name,
       child.address,
@@ -412,25 +424,18 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const updateChildStatus = (id: string, status: ChildStatus): void => {
-    db.prepare(
-      "UPDATE children SET status = ?, last_checked = datetime('now') WHERE id = ?",
-    ).run(status, id);
+    stmt.updateChildStatus.run(status, id);
   };
 
   // ─── Registry ──────────────────────────────────────────────
 
   const getRegistryEntry = (): RegistryEntry | undefined => {
-    const row = db
-      .prepare("SELECT * FROM registry LIMIT 1")
-      .get() as any | undefined;
+    const row = stmt.getRegistryEntry.get() as any | undefined;
     return row ? deserializeRegistry(row) : undefined;
   };
 
   const setRegistryEntry = (entry: RegistryEntry): void => {
-    db.prepare(
-      `INSERT OR REPLACE INTO registry (agent_id, agent_uri, chain, contract_address, tx_hash, registered_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.setRegistryEntry.run(
       entry.agentId,
       entry.agentURI,
       entry.chain,
@@ -443,10 +448,7 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   // ─── Reputation ────────────────────────────────────────────
 
   const insertReputation = (entry: ReputationEntry): void => {
-    db.prepare(
-      `INSERT INTO reputation (id, from_agent, to_agent, score, comment, tx_hash)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.insertReputation.run(
       entry.id,
       entry.fromAgent,
       entry.toAgent,
@@ -457,21 +459,16 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const getReputation = (agentAddress?: string): ReputationEntry[] => {
-    const query = agentAddress
-      ? "SELECT * FROM reputation WHERE to_agent = ? ORDER BY created_at DESC"
-      : "SELECT * FROM reputation ORDER BY created_at DESC";
-    const params = agentAddress ? [agentAddress] : [];
-    const rows = db.prepare(query).all(...params) as any[];
+    const rows = agentAddress
+      ? stmt.getReputationByAgent.all(agentAddress) as any[]
+      : stmt.getReputationAll.all() as any[];
     return rows.map(deserializeReputation);
   };
 
   // ─── Inbox Messages ──────────────────────────────────────────
 
   const insertInboxMessage = (msg: InboxMessage): void => {
-    db.prepare(
-      `INSERT OR IGNORE INTO inbox_messages (id, from_address, content, received_at, reply_to)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(
+    stmt.insertInboxMessage.run(
       msg.id,
       msg.from,
       msg.content,
@@ -481,18 +478,12 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
   };
 
   const getUnprocessedInboxMessages = (limit: number): InboxMessage[] => {
-    const rows = db
-      .prepare(
-        "SELECT * FROM inbox_messages WHERE processed_at IS NULL ORDER BY received_at ASC LIMIT ?",
-      )
-      .all(limit) as any[];
+    const rows = stmt.getUnprocessedInbox.all(limit) as any[];
     return rows.map(deserializeInboxMessage);
   };
 
   const markInboxMessageProcessed = (id: string): void => {
-    db.prepare(
-      "UPDATE inbox_messages SET processed_at = datetime('now') WHERE id = ?",
-    ).run(id);
+    stmt.markInboxProcessed.run(id);
   };
 
   // ─── Agent State ─────────────────────────────────────────────
@@ -1345,6 +1336,17 @@ export function getUnconsumedWakeEvents(db: DatabaseType): WakeEventRow[] {
     "SELECT * FROM wake_events WHERE consumed_at IS NULL ORDER BY id ASC",
   ).all() as any[];
   return rows.map(deserializeWakeEventRow);
+}
+
+/**
+ * Drain all unconsumed wake events in a single query (batch operation).
+ * Returns the count of drained events.
+ */
+export function drainAllWakeEvents(db: DatabaseType): number {
+  const result = db.prepare(
+    "UPDATE wake_events SET consumed_at = datetime('now') WHERE consumed_at IS NULL",
+  ).run();
+  return result.changes;
 }
 
 // ─── KV Pruning Helpers (Phase 1.6) ─────────────────────────────

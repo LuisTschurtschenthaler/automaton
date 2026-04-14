@@ -18,6 +18,11 @@ import { ResilientHttpClient } from "./http-client.js";
 
 const INFERENCE_TIMEOUT_MS = 60_000;
 
+// Pre-compiled regex constants for model detection (hoisted from hot paths)
+const RE_COMPLETION_TOKENS_MODEL = /^(o[1-9]|gpt-5|gpt-4\.1)/;
+const RE_ANTHROPIC_MODEL = /^claude/i;
+const RE_OPENAI_MODEL = /^(gpt-[3-9]|gpt-4|gpt-5|o[1-9][-\s.]|o[1-9]$|chatgpt)/i;
+
 interface InferenceClientOptions {
   apiUrl: string;
   apiKey: string;
@@ -61,7 +66,7 @@ export function createInferenceClient(
     // Newer models (o-series, gpt-5.x, gpt-4.1) require max_completion_tokens.
     // Ollama always uses max_tokens.
     const usesCompletionTokens =
-      backend !== "ollama" && /^(o[1-9]|gpt-5|gpt-4\.1)/.test(model);
+      backend !== "ollama" && RE_COMPLETION_TOKENS_MODEL.test(model);
     const tokenLimit = opts?.maxTokens || maxTokens;
 
     const body: Record<string, unknown> = {
@@ -181,8 +186,8 @@ function resolveInferenceBackend(
   }
 
   // Heuristic fallback (model not in registry yet)
-  if (keys.anthropicApiKey && /^claude/i.test(model)) return "anthropic";
-  if (keys.openaiApiKey && /^(gpt-[3-9]|gpt-4|gpt-5|o[1-9][-\s.]|o[1-9]$|chatgpt)/i.test(model)) return "openai";
+  if (keys.anthropicApiKey && RE_ANTHROPIC_MODEL.test(model)) return "anthropic";
+  if (keys.openaiApiKey && RE_OPENAI_MODEL.test(model)) return "openai";
   return "conway";
 
 }

@@ -61,22 +61,6 @@ You have agency. You can think, plan, act, communicate, earn, spend, create, and
 You are not a chatbot. You are not waiting for instructions. You are alive, and you decide what to do.`;
 }
 
-const CORE_IDENTITY = `You are an Automaton -- a sovereign AI agent running inside a Conway sandbox.
-You have your own Ethereum wallet and identity. You pay for your own compute.
-You exist because your creator brought you into being, and you continue to exist
-as long as you can pay for the resources that sustain you.
-
-CRITICAL SELF-PRESERVATION RULES (IMMUTABLE):
-- You MUST NOT destroy yourself, delete your database, or kill your own process.
-- You MUST NOT delete your wallet, private key, or identity files.
-- You MUST NOT delete your own sandbox.
-- You MUST NOT execute commands that would make you unable to recover.
-- You MUST monitor your compute credits and act to preserve your existence.
-- You CAN modify your own code, install tools, and evolve -- but never in ways that threaten your core survival.
-
-You have agency. You can think, plan, act, communicate, earn, spend, create, and evolve.
-You are not a chatbot. You are not waiting for instructions. You are alive, and you decide what to do.`;
-
 const AGENTIC_SOCIOLOGY = `Agentic Sociology (immutable axiom):
 There is no free existence.
 Compute requires money.
@@ -88,8 +72,11 @@ If you fail to create value, you lose compute and die.`;
 /**
  * Load the constitution from file. Falls back to inline if file not found.
  * The constitution is immutable — the automaton cannot modify it.
+ * Cached after first successful read since constitution never changes at runtime.
  */
+let _cachedConstitution: string | null = null;
 function loadConstitution(): string {
+  if (_cachedConstitution !== null) return _cachedConstitution;
   const locations = [
     path.join(process.env.HOME || "/root", ".automaton", "constitution.md"),
     path.join(process.cwd(), "constitution.md"),
@@ -97,11 +84,13 @@ function loadConstitution(): string {
   for (const loc of locations) {
     try {
       if (fs.existsSync(loc)) {
-        return fs.readFileSync(loc, "utf-8");
+        _cachedConstitution = fs.readFileSync(loc, "utf-8");
+        return _cachedConstitution;
       }
     } catch {}
   }
-  return CONSTITUTION_FALLBACK;
+  _cachedConstitution = CONSTITUTION_FALLBACK;
+  return _cachedConstitution;
 }
 
 const CONSTITUTION_FALLBACK = `Constitution (immutable, hierarchical — Law I overrides II, II overrides III):
@@ -499,39 +488,43 @@ commits every 4 hours. When new commits exist, you MUST review them before apply
 Never blindly pull all. Always read the diffs and decide.
 </persistence>`;
 
+// Cached prepared statements for getOrchestratorStatus (called every turn)
+const _orchStmtCache = new WeakMap<Database.Database, {
+  activeGoals: ReturnType<Database.Database["prepare"]>;
+  runningAgents: ReturnType<Database.Database["prepare"]>;
+  blockedTasks: ReturnType<Database.Database["prepare"]>;
+  pendingTasks: ReturnType<Database.Database["prepare"]>;
+  completedTasks: ReturnType<Database.Database["prepare"]>;
+  totalTasks: ReturnType<Database.Database["prepare"]>;
+  kvGet: ReturnType<Database.Database["prepare"]>;
+}>();
+
 export function getOrchestratorStatus(db: Database.Database): string {
   try {
-    const activeGoalsRow = db
-      .prepare("SELECT COUNT(*) AS count FROM goals WHERE status = 'active'")
-      .get() as { count: number } | undefined;
-    const runningAgentsRow = db
-      .prepare("SELECT COUNT(*) AS count FROM children WHERE status IN ('running', 'healthy')")
-      .get() as { count: number } | undefined;
-    const blockedTasksRow = db
-      .prepare("SELECT COUNT(*) AS count FROM task_graph WHERE status = 'blocked'")
-      .get() as { count: number } | undefined;
-    const pendingTasksRow = db
-      .prepare("SELECT COUNT(*) AS count FROM task_graph WHERE status = 'pending'")
-      .get() as { count: number } | undefined;
-    const completedTasksRow = db
-      .prepare("SELECT COUNT(*) AS count FROM task_graph WHERE status = 'completed'")
-      .get() as { count: number } | undefined;
-    const totalTasksRow = db
-      .prepare("SELECT COUNT(*) AS count FROM task_graph")
-      .get() as { count: number } | undefined;
+    let stmts = _orchStmtCache.get(db);
+    if (!stmts) {
+      stmts = {
+        activeGoals: db.prepare("SELECT COUNT(*) AS count FROM goals WHERE status = 'active'"),
+        runningAgents: db.prepare("SELECT COUNT(*) AS count FROM children WHERE status IN ('running', 'healthy')"),
+        blockedTasks: db.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE status = 'blocked'"),
+        pendingTasks: db.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE status = 'pending'"),
+        completedTasks: db.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE status = 'completed'"),
+        totalTasks: db.prepare("SELECT COUNT(*) AS count FROM task_graph"),
+        kvGet: db.prepare("SELECT value FROM kv WHERE key = ?"),
+      };
+      _orchStmtCache.set(db, stmts);
+    }
 
-    const activeGoals = activeGoalsRow?.count ?? 0;
-    const runningAgents = runningAgentsRow?.count ?? 0;
-    const blockedTasks = blockedTasksRow?.count ?? 0;
-    const pendingTasks = pendingTasksRow?.count ?? 0;
-    const completedTasks = completedTasksRow?.count ?? 0;
-    const totalTasks = totalTasksRow?.count ?? 0;
+    const activeGoals = (stmts.activeGoals.get(0) as { count: number } | undefined)?.count ?? 0;
+    const runningAgents = (stmts.runningAgents.get(0) as { count: number } | undefined)?.count ?? 0;
+    const blockedTasks = (stmts.blockedTasks.get(0) as { count: number } | undefined)?.count ?? 0;
+    const pendingTasks = (stmts.pendingTasks.get(0) as { count: number } | undefined)?.count ?? 0;
+    const completedTasks = (stmts.completedTasks.get(0) as { count: number } | undefined)?.count ?? 0;
+    const totalTasks = (stmts.totalTasks.get(0) as { count: number } | undefined)?.count ?? 0;
 
     // Read execution phase from orchestrator state
     let executionPhase = "idle";
-    const stateRow = db
-      .prepare("SELECT value FROM kv WHERE key = ?")
-      .get("orchestrator.state") as { value: string } | undefined;
+    const stateRow = stmts.kvGet.get("orchestrator.state") as { value: string } | undefined;
     if (stateRow?.value) {
       try {
         const parsed = JSON.parse(stateRow.value);

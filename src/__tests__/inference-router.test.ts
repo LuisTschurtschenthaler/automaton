@@ -215,12 +215,25 @@ describe("InferenceRouter", () => {
   let registry: ModelRegistry;
   let budget: InferenceBudgetTracker;
   let router: InferenceRouter;
+  const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
+    // Ensure provider availability checks pass in the test environment
+    for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CONWAY_API_KEY"]) {
+      savedEnv[key] = process.env[key];
+      process.env[key] = process.env[key] || "test-key";
+    }
     registry = new ModelRegistry(db);
     registry.initialize();
     budget = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
     router = new InferenceRouter(db, registry, budget);
+  });
+
+  afterEach(() => {
+    for (const [key, val] of Object.entries(savedEnv)) {
+      if (val === undefined) delete process.env[key];
+      else process.env[key] = val;
+    }
   });
 
   describe("selectModel", () => {

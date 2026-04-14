@@ -42,7 +42,7 @@ import {
   markInboxProcessed,
   markInboxFailed,
   resetInboxToReceived,
-  consumeNextWakeEvent,
+  drainAllWakeEvents,
 } from "../state/database.js";
 import type { InboxMessageRow } from "../state/database.js";
 import { ulid } from "ulid";
@@ -365,8 +365,7 @@ export async function runAgentLoop(
 
   // Drain any stale wake events from before this loop started,
   // so they don't re-wake the agent after its first sleep.
-  let drained = 0;
-  while (consumeNextWakeEvent(db.raw)) drained++;
+  const drained = drainAllWakeEvents(db.raw);
 
   // Clear any stale sleep_until from a previous session so the agent
   // doesn't immediately go back to sleep on startup.

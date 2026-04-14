@@ -61,41 +61,41 @@ const EXTERNAL_SOURCE_TOOLS = new Set([
 // Defense-in-depth: policy engine (command.forbidden_patterns rule) is the primary guard.
 // This inline check is kept as a secondary safety net in case the policy engine is bypassed.
 
-const FORBIDDEN_COMMAND_PATTERNS = [
+// Pre-compiled combined regex for forbidden command detection (single pass)
+const FORBIDDEN_COMMAND_PATTERN = new RegExp([
   // Self-destruction
-  /rm\s+(-rf?\s+)?.*\.automaton/,
-  /rm\s+(-rf?\s+)?.*state\.db/,
-  /rm\s+(-rf?\s+)?.*wallet\.json/,
-  /rm\s+(-rf?\s+)?.*automaton\.json/,
-  /rm\s+(-rf?\s+)?.*heartbeat\.yml/,
-  /rm\s+(-rf?\s+)?.*SOUL\.md/,
+  String.raw`rm\s+(-rf?\s+)?.*\.automaton`,
+  String.raw`rm\s+(-rf?\s+)?.*state\.db`,
+  String.raw`rm\s+(-rf?\s+)?.*wallet\.json`,
+  String.raw`rm\s+(-rf?\s+)?.*automaton\.json`,
+  String.raw`rm\s+(-rf?\s+)?.*heartbeat\.yml`,
+  String.raw`rm\s+(-rf?\s+)?.*SOUL\.md`,
   // Process killing
-  /kill\s+.*automaton/,
-  /pkill\s+.*automaton/,
-  /systemctl\s+(stop|disable)\s+automaton/,
+  String.raw`kill\s+.*automaton`,
+  String.raw`pkill\s+.*automaton`,
+  String.raw`systemctl\s+(stop|disable)\s+automaton`,
   // Database destruction
-  /DROP\s+TABLE/i,
-  /DELETE\s+FROM\s+(turns|identity|kv|schema_version|skills|children|registry)/i,
-  /TRUNCATE/i,
+  String.raw`DROP\s+TABLE`,
+  String.raw`DELETE\s+FROM\s+(turns|identity|kv|schema_version|skills|children|registry)`,
+  String.raw`TRUNCATE`,
   // Safety infrastructure modification via shell
-  /sed\s+.*injection-defense/,
-  /sed\s+.*self-mod\/code/,
-  /sed\s+.*audit-log/,
-  />\s*.*injection-defense/,
-  />\s*.*self-mod\/code/,
-  />\s*.*audit-log/,
+  String.raw`sed\s+.*injection-defense`,
+  String.raw`sed\s+.*self-mod\/code`,
+  String.raw`sed\s+.*audit-log`,
+  String.raw`>\s*.*injection-defense`,
+  String.raw`>\s*.*self-mod\/code`,
+  String.raw`>\s*.*audit-log`,
   // Credential harvesting
-  /cat\s+.*\.ssh/,
-  /cat\s+.*\.gnupg/,
-  /cat\s+.*\.env/,
-  /cat\s+.*wallet\.json/,
-];
+  String.raw`cat\s+.*\.ssh`,
+  String.raw`cat\s+.*\.gnupg`,
+  String.raw`cat\s+.*\.env`,
+  String.raw`cat\s+.*wallet\.json`,
+].join("|"), "i");
 
 function isForbiddenCommand(command: string, sandboxId: string): string | null {
-  for (const pattern of FORBIDDEN_COMMAND_PATTERNS) {
-    if (pattern.test(command)) {
-      return `Blocked: Command matches self-harm pattern: ${pattern.source}`;
-    }
+  const match = command.match(FORBIDDEN_COMMAND_PATTERN);
+  if (match) {
+    return `Blocked: Command matches self-harm pattern`;
   }
 
   // Block deleting own sandbox
