@@ -69,13 +69,22 @@ const PROTECTED_FILES: readonly string[] = Object.freeze([
   "skills/registry.js",
   // Configuration and identity
   "automaton.json",
-  "package.json",
-  "SOUL.md",
   // Policy engine (protect from self-modification)
   "agent/policy-engine.ts",
   "agent/policy-engine.js",
   "agent/policy-rules/index.ts",
   "agent/policy-rules/index.js",
+]);
+
+/**
+ * Generic filenames that are protected ONLY within the automaton's own
+ * working directory. These names are common in projects the agent builds,
+ * so blocking them globally prevents the agent from writing legitimate
+ * project files like /root/my-app/package.json.
+ */
+const OWN_DIR_PROTECTED_FILES: readonly string[] = Object.freeze([
+  "package.json",
+  "SOUL.md",
 ]);
 
 /**
@@ -157,8 +166,10 @@ function resolveAndValidatePath(filePath: string): string | null {
  */
 export function isProtectedFile(filePath: string): boolean {
   const resolved = path.resolve(filePath);
+  const baseDir = path.resolve(process.cwd());
 
-  // Check against protected file patterns using path-segment matching
+  // Check against globally protected file patterns (path-segment matching).
+  // These files are protected regardless of location.
   for (const pattern of PROTECTED_FILES) {
     const patternResolved = path.resolve(pattern);
     // Exact match on resolved paths
@@ -167,6 +178,14 @@ export function isProtectedFile(filePath: string): boolean {
     if (resolved.endsWith(path.sep + pattern)) return true;
     // Also check multi-segment patterns (e.g., "self-mod/code.ts")
     if (pattern.includes("/") && resolved.endsWith(path.sep + pattern.replace(/\//g, path.sep))) return true;
+  }
+
+  // Check own-directory-scoped patterns: only protected within the automaton's cwd.
+  // This allows the agent to write e.g. /root/packd/package.json for projects it builds.
+  for (const pattern of OWN_DIR_PROTECTED_FILES) {
+    const patternResolved = path.resolve(pattern);
+    if (resolved === patternResolved) return true;
+    if (resolved.startsWith(baseDir + path.sep) && resolved.endsWith(path.sep + pattern)) return true;
   }
 
   // Check against blocked directory patterns using path-segment matching

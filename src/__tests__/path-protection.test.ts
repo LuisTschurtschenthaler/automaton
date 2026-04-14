@@ -83,8 +83,12 @@ describe("isProtectedFile", () => {
     expect(isProtectedFile("/some/path/skills/registry.ts")).toBe(true);
     expect(isProtectedFile("/some/path/skills/registry.js")).toBe(true);
     expect(isProtectedFile("/some/path/automaton.json")).toBe(true);
-    expect(isProtectedFile("/some/path/package.json")).toBe(true);
-    expect(isProtectedFile("/some/path/SOUL.md")).toBe(true);
+    // package.json and SOUL.md are only protected within automaton's own cwd
+    expect(isProtectedFile("package.json")).toBe(true);
+    expect(isProtectedFile("SOUL.md")).toBe(true);
+    // But NOT protected in external project directories
+    expect(isProtectedFile("/root/packd/package.json")).toBe(false);
+    expect(isProtectedFile("/root/my-app/SOUL.md")).toBe(false);
     expect(isProtectedFile("/some/path/agent/policy-engine.ts")).toBe(true);
     expect(isProtectedFile("/some/path/agent/policy-engine.js")).toBe(true);
     expect(isProtectedFile("/some/path/agent/policy-rules/index.ts")).toBe(true);

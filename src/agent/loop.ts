@@ -228,23 +228,29 @@ export async function runAgentLoop(
         unifiedInference,
       );
 
-      // Adapter: wrap the main agent's working inference client so local
-      // workers can use it. The main InferenceClient talks to Conway Compute
-      // (which always works), unlike the UnifiedInferenceClient which needs
-      // a direct OpenAI key.
+      // Adapter: wrap the inference router so local workers use the same
+      // model selection and multi-provider fallback as the main agent.
+      // This ensures workers use Anthropic when Conway/OpenAI quota is exhausted.
       const workerInference = {
-        chat: async (params: { messages: any[]; tools?: any[]; maxTokens?: number; temperature?: number }) => {
-          const response = await inference.chat(
-            params.messages,
+        chat: async (params: { tier?: string; messages: any[]; tools?: any[]; maxTokens?: number; temperature?: number }) => {
+          const tierMap: Record<string, string> = { fast: "normal", normal: "normal", high: "high" };
+          const tier = (tierMap[params.tier ?? "normal"] ?? "normal") as import("../inference/types.js").SurvivalTier;
+          const toolDefs = params.tools;
+          const result = await inferenceRouter.route(
             {
-              tools: params.tools,
+              messages: params.messages,
+              taskType: "agent_turn",
+              tier,
+              sessionId: db.getKV("session_id") || "default",
+              turnId: ulid(),
+              tools: toolDefs,
               maxTokens: params.maxTokens,
-              temperature: params.temperature,
             },
+            (msgs, opts) => inference.chat(msgs, { ...opts, tools: toolDefs }),
           );
           return {
-            content: response.message?.content ?? "",
-            toolCalls: response.toolCalls,
+            content: result.content ?? "",
+            toolCalls: result.toolCalls,
           };
         },
       };
@@ -640,7 +646,9 @@ export async function runAgentLoop(
 
       // ── Inference Call (via router when available) ──
       const survivalTier = getSurvivalTier(financial.creditsCents);
-      log(config, `[THINK] Routing inference (tier: ${survivalTier}, model: ${inference.getDefaultModel()})...`);
+      const candidates = inferenceRouter.selectCandidates(survivalTier, "agent_turn");
+      const candidateModel = candidates.length > 0 ? candidates[0].modelId : inference.getDefaultModel();
+      log(config, `[THINK] Routing inference (tier: ${survivalTier}, model: ${candidateModel})...`);
 
       const inferenceTools = toolsToInferenceFormat(tools);
       const routerResult = await inferenceRouter.route(
