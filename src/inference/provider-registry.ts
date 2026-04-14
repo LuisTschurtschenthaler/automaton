@@ -56,15 +56,15 @@ const DEFAULT_EMERGENCY_STOP_CREDITS = 100;
 const DEFAULT_TIER_DEFAULTS: Record<ModelTier, TierDefault> = {
   reasoning: {
     preferredProvider: "openai",
-    fallbackOrder: ["groq", "together"],
+    fallbackOrder: ["anthropic", "groq", "together"],
   },
   fast: {
     preferredProvider: "groq",
-    fallbackOrder: ["openai", "together", "local"],
+    fallbackOrder: ["anthropic", "openai", "together", "local"],
   },
   cheap: {
     preferredProvider: "groq",
-    fallbackOrder: ["together", "local", "openai"],
+    fallbackOrder: ["anthropic", "together", "local", "openai"],
   },
 };
 
@@ -112,6 +112,51 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     maxRequestsPerMinute: 500,
     maxTokensPerMinute: 2_000_000,
     priority: 1,
+    enabled: true,
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    apiKeyEnvVar: "ANTHROPIC_API_KEY",
+    models: [
+      {
+        id: "claude-sonnet-4-20250514",
+        tier: "reasoning",
+        contextWindow: 200000,
+        maxOutputTokens: 8192,
+        costPerInputToken: 3.0,
+        costPerOutputToken: 15.0,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStreaming: true,
+      },
+      {
+        id: "claude-haiku-4-20250514",
+        tier: "fast",
+        contextWindow: 200000,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0.8,
+        costPerOutputToken: 4.0,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStreaming: true,
+      },
+      {
+        id: "claude-haiku-4-20250514",
+        tier: "cheap",
+        contextWindow: 200000,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0.8,
+        costPerOutputToken: 4.0,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStreaming: true,
+      },
+    ],
+    maxRequestsPerMinute: 1000,
+    maxTokensPerMinute: 2_000_000,
+    priority: 2,
     enabled: true,
   },
   {
@@ -455,6 +500,7 @@ export class ProviderRegistry {
 
     return `missing-${provider.apiKeyEnvVar.toLowerCase()}`;
   }
+
 
   private isProviderActive(provider: ProviderConfig): boolean {
     if (!provider.enabled) {

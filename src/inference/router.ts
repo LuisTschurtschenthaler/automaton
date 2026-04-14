@@ -24,6 +24,26 @@ import { DEFAULT_ROUTING_MATRIX, TASK_TIMEOUTS } from "./types.js";
 
 type Database = BetterSqlite3.Database;
 
+/** Map provider names to the env var that holds their API key. */
+const PROVIDER_KEY_ENV: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  ollama: "", // always available when configured
+  conway: "CONWAY_API_KEY",
+};
+
+/**
+ * Returns true when the given provider can actually be called,
+ * i.e. its API key env var is set (or the provider doesn't need one).
+ */
+function isProviderAvailable(provider: string): boolean {
+  const envVar = PROVIDER_KEY_ENV[provider];
+  // Providers not in the map (e.g. "other") or without an env requirement are always available
+  if (!envVar) return true;
+  const value = process.env[envVar];
+  return typeof value === "string" && value.length > 0;
+}
+
 export class InferenceRouter {
   private db: Database;
   private registry: ModelRegistry;
@@ -201,7 +221,7 @@ export class InferenceRouter {
     if (preference && preference.candidates.length > 0) {
       for (const candidateId of preference.candidates) {
         const entry = this.registry.get(candidateId);
-        if (entry && entry.enabled) {
+        if (entry && entry.enabled && isProviderAvailable(entry.provider)) {
           return entry;
         }
       }
@@ -219,6 +239,7 @@ export class InferenceRouter {
       if (!modelId) continue;
       const entry = this.registry.get(modelId);
       if (!entry || !entry.enabled) continue;
+      if (!isProviderAvailable(entry.provider)) continue;
       const isFree = entry.costPer1kInput === 0 && entry.costPer1kOutput === 0;
       const tierOk = tierRank >= (TIER_ORDER[entry.tierMinimum] ?? 0);
       if (isFree || tierOk) {
