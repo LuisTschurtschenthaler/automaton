@@ -482,6 +482,15 @@ function transformMessagesForAnthropic(
     }
   }
 
+  // Safety: Anthropic requires the conversation to end with a user message.
+  // Models like claude-opus-4-6 do not support assistant message prefill.
+  if (transformed.length > 0 && transformed[transformed.length - 1].role === "assistant") {
+    transformed.push({
+      role: "user",
+      content: "[system] Continue. What is your next action?",
+    });
+  }
+
   return {
     system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
     messages: transformed,
@@ -503,5 +512,6 @@ function parseToolArguments(raw: string): Record<string, unknown> {
 function normalizeAnthropicFinishReason(reason: unknown): string {
   if (typeof reason !== "string") return "stop";
   if (reason === "tool_use") return "tool_calls";
+  if (reason === "end_turn") return "stop";
   return reason;
 }

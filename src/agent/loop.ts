@@ -960,12 +960,14 @@ export async function runAgentLoop(
         }
       }
 
-      // Terminal errors: insufficient quota, auth failures, etc.
+      // Terminal errors: insufficient quota, auth failures, structural 400s, etc.
       // Retrying won't help — sleep immediately with longer backoff.
       const isTerminalError =
         err.message?.includes("insufficient_quota") ||
         err.message?.includes("invalid_api_key") ||
-        (err.message?.includes("401") && err.message?.includes("Inference error"));
+        err.message?.includes("invalid_request_error") ||
+        (err.message?.includes("401") && err.message?.includes("Inference error")) ||
+        (err.message?.includes("400") && err.message?.includes("Inference error"));
       if (isTerminalError) {
         log(config, `[TERMINAL] Provider error is permanent. Sleeping 10 min.`);
         db.setAgentState("sleeping");
