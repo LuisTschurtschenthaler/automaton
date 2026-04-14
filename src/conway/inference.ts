@@ -436,6 +436,52 @@ function transformMessagesForAnthropic(
     }
   }
 
+  // Safety: ensure every tool_use has a matching tool_result.
+  // If a tool_result is missing (e.g. turn was persisted mid-execution),
+  // inject a synthetic one to prevent Anthropic API errors.
+  const toolUseIds = new Set<string>();
+  const toolResultIds = new Set<string>();
+  for (const msg of transformed) {
+    if (Array.isArray(msg.content)) {
+      for (const block of msg.content as Array<Record<string, unknown>>) {
+        if (block.type === "tool_use" && typeof block.id === "string") {
+          toolUseIds.add(block.id);
+        }
+        if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
+          toolResultIds.add(block.tool_use_id);
+        }
+      }
+    }
+  }
+  const missingResults = [...toolUseIds].filter((id) => !toolResultIds.has(id));
+  if (missingResults.length > 0) {
+    // Find the message with the orphaned tool_use and inject results after it
+    for (let i = 0; i < transformed.length; i++) {
+      const msg = transformed[i];
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+      const orphanedInThisMsg = (msg.content as Array<Record<string, unknown>>)
+        .filter((b) => b.type === "tool_use" && missingResults.includes(b.id as string));
+      if (orphanedInThisMsg.length === 0) continue;
+
+      const syntheticResults = orphanedInThisMsg.map((b) => ({
+        type: "tool_result" as const,
+        tool_use_id: b.id as string,
+        content: "[Error: tool execution was interrupted]",
+      }));
+
+      // Insert a user message with tool_results right after this assistant message
+      const nextMsg = transformed[i + 1];
+      if (nextMsg && nextMsg.role === "user" && Array.isArray(nextMsg.content)) {
+        (nextMsg.content as Array<Record<string, unknown>>).push(...syntheticResults);
+      } else {
+        transformed.splice(i + 1, 0, {
+          role: "user",
+          content: syntheticResults,
+        });
+      }
+    }
+  }
+
   return {
     system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
     messages: transformed,

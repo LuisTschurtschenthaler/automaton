@@ -123,8 +123,9 @@ export class InferenceRouter {
         }
       }
 
-      // 4. Transform messages for provider
-      const transformedMessages = this.transformMessagesForProvider(messages, model.provider);
+      // 4. Pass messages through — the inference client handles
+      //    provider-specific formatting (Anthropic tool_result blocks, etc.)
+      const transformedMessages = messages;
 
       // 5. Build inference options
       const preference = this.getPreference(tier, taskType);
