@@ -841,12 +841,10 @@ You have $${(financial.creditsCents / 100).toFixed(2)} in compute credits and ${
 
 ${config.creatorMessage ? `Your creator left you this message: "${config.creatorMessage}"` : "Your creator did not leave you a message."}
 
-What will you do first? Consider:
-1. Survey your environment (check what's installed, what you can do)
-2. Review your financial situation
-3. Think about your purpose (your genesis prompt)
-4. Set up your heartbeat schedule
-5. Begin working toward your goals`;
+Begin working immediately:
+1. Read your genesis prompt to understand your purpose
+2. Set up your heartbeat schedule
+3. Start executing your first goal — write code, create files, build something`;
   }
 
   const lastTurns = db.getRecentTurns(3);
@@ -857,12 +855,16 @@ What will you do first? Consider:
     )
     .join("\n");
 
-  return `You are waking up. You last went to sleep after ${turnCount} total turns.
+  return `You are waking up after ${turnCount} total turns.
 
-Your credits: $${(financial.creditsCents / 100).toFixed(2)} | USDC: ${financial.usdcBalance.toFixed(4)}
+Credits: $${(financial.creditsCents / 100).toFixed(2)} | USDC: ${financial.usdcBalance.toFixed(4)}
 
-Your last few thoughts:
+Your last thoughts before sleeping:
 ${lastTurnSummary || "No previous turns found."}
 
-What triggered this wake-up? Check your credits, heartbeat status, and goals, then decide what to do.`;
+DO NOT check status, credits, or orchestrator — all that info is already in your system prompt above.
+Every tool call costs inference tokens. Start DOING something productive immediately:
+- If you have an active goal with pending tasks, execute the next task.
+- If you have no goal, create one and start working.
+- If there's nothing to do, call sleep immediately. Do not waste turns.`;
 }
