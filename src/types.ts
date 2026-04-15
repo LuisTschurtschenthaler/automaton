@@ -394,8 +394,6 @@ export interface ConwayClient {
     ttl?: number,
   ): Promise<DnsRecord>;
   deleteDnsRecord(domain: string, recordId: string): Promise<void>;
-  // Model discovery
-  listModels(): Promise<ModelInfo[]>;
   /** Create a new client scoped to a specific sandbox ID. */
   createScopedClient(targetSandboxId: string): ConwayClient;
 }
@@ -471,15 +469,6 @@ export interface DnsRecord {
   value: string;
   ttl?: number;
   distance?: number;
-}
-
-export interface ModelInfo {
-  id: string;
-  provider: string;
-  pricing: {
-    inputPerMillion: number;
-    outputPerMillion: number;
-  };
 }
 
 // ─── Policy Engine ───────────────────────────────────────────────

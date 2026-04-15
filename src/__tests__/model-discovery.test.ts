@@ -14,7 +14,7 @@ import {
   type ProviderEndpoint,
   type DiscoveryResult,
 } from "../inference/model-discovery.js";
-import { ResilientHttpClient } from "../conway/http-client.js";
+import { ResilientHttpClient } from "../observability/http-client.js";
 
 // ─── Env helpers ──────────────────────────────────────────────────
 
@@ -417,9 +417,9 @@ describe("generateSuggestedConfig", () => {
     const config = generateSuggestedConfig(results);
     const model = config.providers[0].models[0];
 
-    // gpt-4o is in STATIC_MODEL_BASELINE (as "github" provider with costPer1kInput: 25)
-    expect(model.costPerInputToken).toBeGreaterThan(0);
-    expect(model.costPerOutputToken).toBeGreaterThan(0);
+    // gpt-4o is in STATIC_MODEL_BASELINE as GitHub provider with zero cost (Enterprise plan)
+    expect(model.costPerInputToken).toBe(0);
+    expect(model.costPerOutputToken).toBe(0);
   });
 
   it("sets zero cost for unknown models", () => {

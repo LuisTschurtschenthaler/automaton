@@ -66,7 +66,7 @@ import { EventStream } from "../memory/event-stream.js";
 import { KnowledgeStore } from "../memory/knowledge-store.js";
 import { ProviderRegistry } from "../inference/provider-registry.js";
 import { UnifiedInferenceClient } from "../inference/inference-client.js";
-import { CircuitOpenError } from "../conway/http-client.js";
+import { CircuitOpenError } from "../observability/http-client.js";
 
 const logger = createLogger("loop");
 const MAX_TOOL_CALLS_PER_TURN = 10;

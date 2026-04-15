@@ -11,7 +11,7 @@ import path from "path";
 import { SiweMessage } from "siwe";
 import { getWallet, getAutomatonDir } from "./wallet.js";
 import type { ProvisionResult } from "../types.js";
-import { ResilientHttpClient } from "../conway/http-client.js";
+import { ResilientHttpClient } from "../observability/http-client.js";
 import type { ChainIdentity } from "./chain.js";
 import { buildSiwsMessage, signSiwsMessage } from "./siws.js";
 

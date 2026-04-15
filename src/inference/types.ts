@@ -46,8 +46,7 @@ export const TASK_TIMEOUTS: Record<string, number> = {
 
 // === Static Model Baseline ===
 // Known models with realistic pricing (hundredths of cents per 1k tokens)
-// GitHub models are primary (Enterprise plan — no per-token billing, full context windows).
-// Conway models are kept as fallbacks for models not yet available on GitHub.
+// GitHub Models is the sole inference provider (Enterprise plan — no per-token billing).
 
 export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | "updatedAt">[] = [
   // ── GitHub Models (primary provider — Copilot Enterprise) ──

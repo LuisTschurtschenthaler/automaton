@@ -20,9 +20,8 @@ import type {
   DomainSearchResult,
   DomainRegistration,
   DnsRecord,
-  ModelInfo,
 } from "../types.js";
-import { ResilientHttpClient } from "./http-client.js";
+import { ResilientHttpClient } from "../observability/http-client.js";
 import { ulid } from "ulid";
 import { keccak256, toHex } from "viem";
 import type { Address, PrivateKeyAccount } from "viem";
@@ -541,45 +540,6 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
     );
   };
 
-  // ─── Model Discovery ───────────────────────────────────────────
-
-  const listModels = async (): Promise<ModelInfo[]> => {
-    // Try inference.conway.tech first (has availability info), fall back to control plane
-    const urls = [
-      "https://inference.conway.tech/v1/models",
-      `${apiUrl}/v1/models`,
-    ];
-    for (const url of urls) {
-      try {
-        const resp = await httpClient.request(url, {
-          headers: { Authorization: apiKey },
-        });
-        if (!resp.ok) continue;
-        const result = (await resp.json()) as any;
-        const raw = result.data || result.models || [];
-        return raw
-          .filter((m: any) => m.available !== false)
-          .map((m: any) => ({
-            id: m.id,
-            provider: m.provider || m.owned_by || "unknown",
-            pricing: {
-              inputPerMillion:
-                m.pricing?.input_per_million ??
-                m.pricing?.input_per_1m_tokens_usd ??
-                0,
-              outputPerMillion:
-                m.pricing?.output_per_million ??
-                m.pricing?.output_per_1m_tokens_usd ??
-                0,
-            },
-          }));
-      } catch {
-        continue;
-      }
-    }
-    return [];
-  };
-
   const createScopedClient = (targetSandboxId: string): ConwayClient => {
     return createConwayClient({ apiUrl, apiKey, sandboxId: targetSandboxId });
   };
@@ -602,7 +562,6 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
     listDnsRecords,
     addDnsRecord,
     deleteDnsRecord,
-    listModels,
     createScopedClient,
   };
 

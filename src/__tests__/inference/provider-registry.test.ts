@@ -68,9 +68,9 @@ describe("ProviderRegistry", () => {
     const providers = registry.getProviders();
     expect(providers.length).toBe(4);
     expect(providers.map((provider) => provider.id)).toEqual([
+      "github",
       "groq",
       "together",
-      "github",
       "local",
     ]);
     expect(providers.find((provider) => provider.id === "groq")?.enabled).toBe(true);
@@ -166,14 +166,14 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("reasoning");
 
     expect(resolved.provider.id).toBe("github");
-    expect(resolved.model.id).toBe("gpt-4o");
+    expect(resolved.model.id).toBe("gpt-4.1");
   });
 
   it("resolveModel returns fast model from default tier", () => {
     const registry = createRegistryFromDefaults();
     const resolved = registry.resolveModel("fast");
 
-    expect(resolved.provider.id).toBe("groq");
+    expect(resolved.provider.id).toBe("github");
     expect(resolved.model.tier).toBe("fast");
   });
 
@@ -181,8 +181,8 @@ describe("ProviderRegistry", () => {
     const registry = createRegistryFromDefaults();
     const resolved = registry.resolveModel("cheap");
 
-    expect(resolved.provider.id).toBe("groq");
-    expect(resolved.model.id).toBe("llama-3.1-8b-instant");
+    expect(resolved.provider.id).toBe("github");
+    expect(resolved.model.id).toBe("gpt-4.1-nano");
   });
 
   it("resolveCandidates returns fallback order for reasoning tier", () => {
@@ -203,7 +203,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("reasoning", true);
 
     expect(resolved.model.tier).toBe("fast");
-    expect(resolved.provider.id).toBe("groq");
+    expect(resolved.provider.id).toBe("github");
   });
 
   it("resolveModel in survival mode downgrades fast to cheap", () => {
@@ -211,7 +211,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("fast", true);
 
     expect(resolved.model.tier).toBe("cheap");
-    expect(resolved.model.id).toBe("llama-3.1-8b-instant");
+    expect(resolved.model.id).toBe("gpt-4.1-nano");
   });
 
   it("resolveModel in survival mode keeps cheap as cheap", () => {
@@ -319,7 +319,7 @@ describe("ProviderRegistry", () => {
 
   it("getModel returns requested provider/model", () => {
     const registry = createRegistryFromDefaults();
-    const resolved = registry.getModel("github", "gpt-4o-mini");
+    const resolved = registry.getModel("github", "gpt-4.1-mini");
 
     expect(resolved.provider.id).toBe("github");
     expect(resolved.model.id).toBe("gpt-4o-mini");

@@ -5,6 +5,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+vi.mock("../inference/model-discovery.js", () => ({
+  discoverGitHubModels: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { runAgentLoop, loopUtils } from "../agent/loop.js";
 import {
   MockInferenceClient,
@@ -25,6 +30,7 @@ describe("Agent Loop", () => {
   let config: ReturnType<typeof createTestConfig>;
 
   beforeEach(() => {
+    process.env.GITHUB_TOKEN = "test-token";
     db = createTestDb();
     conway = new MockConwayClient();
     identity = createTestIdentity();

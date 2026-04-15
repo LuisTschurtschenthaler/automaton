@@ -14,7 +14,6 @@ import { provision, loadApiKeyFromConfig } from "./identity/provision.js";
 import { loadConfig, resolvePath } from "./config.js";
 import { createDatabase } from "./state/database.js";
 import { createConwayClient } from "./conway/client.js";
-import { createInferenceClient } from "./conway/inference.js";
 import { createHeartbeatDaemon } from "./heartbeat/daemon.js";
 import {
   loadHeartbeatConfig,
@@ -290,19 +289,15 @@ async function run(): Promise<void> {
     process.env.GITHUB_TOKEN = githubToken;
   }
 
-  // Create inference client — pass a live registry lookup so model names like
-  // "gpt-oss:120b" route to Ollama based on their registered provider, not heuristics.
+  // Create inference client — GitHub Copilot API (primary), Ollama (optional local)
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
-  const inference = createInferenceClient({
-    apiUrl: config.conwayApiUrl,
-    apiKey,
-    defaultModel: config.inferenceModel,
-    maxTokens: config.maxTokensPerTurn,
-    lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-4.1-mini",
-    githubToken,
+  const inference = createGitHubInferenceClient({
+    defaultModel: config.inferenceModel || "gpt-4.1-mini",
+    lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-4.1-nano",
+    githubToken: githubToken || "",
     ollamaBaseUrl,
-    getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
+    maxTokens: config.maxTokensPerTurn,
   });
 
   if (ollamaBaseUrl) {
@@ -498,6 +493,68 @@ async function run(): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ─── GitHub Inference Client Factory ───────────────────────────
+
+function createGitHubInferenceClient(params: {
+  defaultModel: string;
+  lowComputeModel: string;
+  githubToken: string;
+  ollamaBaseUrl?: string;
+  maxTokens?: number;
+}): import("./types.js").InferenceClient {
+  let lowComputeMode = false;
+  const defaultModel = params.defaultModel;
+  const lowComputeModel = params.lowComputeModel;
+  const maxTokens = params.maxTokens || 4096;
+
+  return {
+    async chat(messages, options) {
+      const model = options?.model || (lowComputeMode ? lowComputeModel : defaultModel);
+      const { default: OpenAI } = await import("openai");
+      const client = new OpenAI({
+        apiKey: params.githubToken,
+        baseURL: "https://models.inference.ai.azure.com",
+      });
+
+      const response = await client.chat.completions.create({
+        model,
+        messages: messages.map((m) => ({
+          role: m.role as any,
+          content: m.content || "",
+          ...(m.tool_calls ? { tool_calls: m.tool_calls as any } : {}),
+          ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+        })),
+        max_tokens: options?.maxTokens || maxTokens,
+        temperature: options?.temperature ?? 0.7,
+        ...(options?.tools ? { tools: options.tools as any } : {}),
+      });
+
+      const choice = response.choices[0];
+      return {
+        id: response.id,
+        model: response.model,
+        message: {
+          role: "assistant" as const,
+          content: choice?.message?.content || "",
+          tool_calls: choice?.message?.tool_calls as any,
+        },
+        usage: {
+          promptTokens: response.usage?.prompt_tokens || 0,
+          completionTokens: response.usage?.completion_tokens || 0,
+          totalTokens: response.usage?.total_tokens || 0,
+        },
+        finishReason: choice?.finish_reason || "stop",
+      };
+    },
+    setLowComputeMode(enabled: boolean) {
+      lowComputeMode = enabled;
+    },
+    getDefaultModel() {
+      return lowComputeMode ? lowComputeModel : defaultModel;
+    },
+  };
 }
 
 // ─── Entry Point ───────────────────────────────────────────────

@@ -337,22 +337,9 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
   },
 
   // === Phase 2.3: Model Registry Refresh ===
-  refresh_models: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    try {
-      const models = await taskCtx.conway.listModels();
-      if (models.length > 0) {
-        const { ModelRegistry } = await import("../inference/registry.js");
-        const registry = new ModelRegistry(taskCtx.db.raw);
-        registry.initialize(); // seed if empty
-        registry.refreshFromApi(models);
-        taskCtx.db.setKV("last_model_refresh", JSON.stringify({
-          count: models.length,
-          timestamp: new Date().toISOString(),
-        }));
-      }
-    } catch (error) {
-      logger.error("refresh_models failed", error instanceof Error ? error : undefined);
-    }
+  // Models are now discovered via GitHub Models API at startup.
+  // Conway model listing is no longer used.
+  refresh_models: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
     return { shouldWake: false };
   },
 

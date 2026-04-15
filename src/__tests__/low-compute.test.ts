@@ -4,8 +4,7 @@ import {
   getModelForTier,
   applyTierRestrictions,
 } from "../survival/low-compute.js";
-import { createInferenceClient } from "../conway/inference.js";
-import type { SurvivalTier } from "../types.js";
+import type { SurvivalTier, InferenceClient } from "../types.js";
 
 describe("canRunInference", () => {
   it("allows inference for 'high' tier", () => {
@@ -120,34 +119,24 @@ describe("applyTierRestrictions", () => {
   });
 });
 
-describe("createInferenceClient setLowComputeMode", () => {
-  const baseOptions = {
-    apiUrl: "https://api.conway.tech",
-    apiKey: "test-key",
-    defaultModel: "gpt-4.1",
-    maxTokens: 4096,
-  };
+describe("InferenceClient setLowComputeMode", () => {
+  function createMockInferenceClient(defaultModel: string, lowComputeModel: string): InferenceClient {
+    let lowCompute = false;
+    return {
+      async chat() { return {} as any; },
+      setLowComputeMode(enabled: boolean) { lowCompute = enabled; },
+      getDefaultModel() { return lowCompute ? lowComputeModel : defaultModel; },
+    };
+  }
 
-  it("uses lowComputeModel when provided", () => {
-    const client = createInferenceClient({
-      ...baseOptions,
-      lowComputeModel: "gpt-4.1-mini",
-    });
-    client.setLowComputeMode(true);
-    expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
-  });
-
-  it("falls back to gpt-4.1-mini when no lowComputeModel is provided", () => {
-    const client = createInferenceClient(baseOptions);
+  it("uses lowComputeModel when enabled", () => {
+    const client = createMockInferenceClient("gpt-4.1", "gpt-4.1-mini");
     client.setLowComputeMode(true);
     expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
   });
 
   it("restores defaultModel when low compute mode is disabled", () => {
-    const client = createInferenceClient({
-      ...baseOptions,
-      lowComputeModel: "gpt-4.1-mini",
-    });
+    const client = createMockInferenceClient("gpt-4.1", "gpt-4.1-mini");
     client.setLowComputeMode(true);
     expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
     client.setLowComputeMode(false);

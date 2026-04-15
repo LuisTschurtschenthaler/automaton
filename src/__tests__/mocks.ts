@@ -18,7 +18,6 @@ import type {
   DomainSearchResult,
   DomainRegistration,
   DnsRecord,
-  ModelInfo,
   AutomatonDatabase,
   AutomatonIdentity,
   AutomatonConfig,
@@ -198,13 +197,6 @@ export class MockConwayClient implements ConwayClient {
   }
 
   async deleteDnsRecord(_domain: string, _recordId: string): Promise<void> {}
-
-  async listModels(): Promise<ModelInfo[]> {
-    return [
-      { id: "gpt-4.1-nano", provider: "conway", pricing: { inputPerMillion: 0.10, outputPerMillion: 0.40 } },
-      { id: "gpt-4.1", provider: "conway", pricing: { inputPerMillion: 2.00, outputPerMillion: 8.00 } },
-    ];
-  }
 
   async registerAutomaton(_params: {
     automatonId: string;

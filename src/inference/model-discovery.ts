@@ -5,7 +5,7 @@
  * merges with static baseline, and generates suggested provider configs.
  */
 
-import { ResilientHttpClient } from "../conway/http-client.js";
+import { ResilientHttpClient } from "../observability/http-client.js";
 import { STATIC_MODEL_BASELINE } from "./types.js";
 import type { ProviderConfig, ModelConfig, ModelTier } from "./provider-registry.js";
 import { createLogger } from "../observability/logger.js";
