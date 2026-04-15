@@ -46,7 +46,7 @@ console.log(label("State")    + stateColor(state));
 console.log(label("Turns")    + chalk.yellow(String(turnCount)));
 console.log(label("Tools")    + chalk.yellow(`${tools.length} installed`));
 console.log(label("Heartbeat") + chalk.yellow(`${heartbeats.filter((h) => h.enabled).length} active`));
-console.log(label("Model")    + chalk.white(config.inferenceModel));
+console.log(label("Model")    + chalk.white(config.inferenceModel ?? "auto"));
 console.log(divider);
 
 if (recentTurns.length > 0) {

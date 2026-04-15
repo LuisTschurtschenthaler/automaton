@@ -5,7 +5,7 @@ declare module "@conway/automaton/config.js" {
     creatorAddress: string;
     sandboxId: string;
     dbPath: string;
-    inferenceModel: string;
+    inferenceModel?: string;
     conwayApiUrl: string;
     conwayApiKey: string;
     githubToken?: string;

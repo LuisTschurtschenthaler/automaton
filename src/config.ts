@@ -142,7 +142,6 @@ export function createConfig(params: {
     conwayApiKey: params.apiKey,
     githubToken: params.githubToken,
     ollamaBaseUrl: params.ollamaBaseUrl,
-    inferenceModel: DEFAULT_CONFIG.inferenceModel || "gpt-4.1",
     maxTokensPerTurn: DEFAULT_CONFIG.maxTokensPerTurn || 4096,
     heartbeatConfigPath:
       DEFAULT_CONFIG.heartbeatConfigPath || "~/.automaton/heartbeat.yml",

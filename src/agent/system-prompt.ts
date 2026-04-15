@@ -785,7 +785,7 @@ Credits: $${(financial.creditsCents / 100).toFixed(2)}
 Survival tier: ${survivalTier}${uptimeLine}
 Total turns completed: ${turnCount}
 Recent self-modifications: ${recentMods.length}
-Inference model: ${config.inferenceModel}
+Inference model: ${config.modelStrategy?.inferenceModel ?? "auto"}
 ERC-8004 Agent ID: ${registryEntry?.agentId || "not registered"}
 Children: ${children.filter((c) => c.status !== "dead").length} alive / ${children.length} total
 Lineage: ${lineageSummary}${upstreamLine}

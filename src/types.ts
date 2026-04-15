@@ -51,7 +51,6 @@ export interface AutomatonConfig {
   conwayApiKey: string;
   githubToken?: string;
   ollamaBaseUrl?: string;
-  inferenceModel: string;
   maxTokensPerTurn: number;
   heartbeatConfigPath: string;
   dbPath: string;
@@ -78,7 +77,6 @@ export interface AutomatonConfig {
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   conwayApiUrl: "https://api.conway.tech",
-  inferenceModel: "gpt-4.1",
   maxTokensPerTurn: 4096,
   heartbeatConfigPath: "~/.automaton/heartbeat.yml",
   dbPath: "~/.automaton/state.db",
@@ -1220,9 +1218,12 @@ export interface ModelRegistryRow {
 }
 
 export interface ModelStrategyConfig {
-  inferenceModel: string;
-  lowComputeModel: string;
-  criticalModel: string;
+  /** Auto-resolved from registry at startup. Do not set manually. */
+  inferenceModel?: string;
+  /** Auto-resolved from registry at startup. Do not set manually. */
+  lowComputeModel?: string;
+  /** Auto-resolved from registry at startup. Do not set manually. */
+  criticalModel?: string;
   maxTokensPerTurn: number;
   hourlyBudgetCents: number; // default: 0 (no limit)
   sessionBudgetCents: number; // default: 0 (no limit)
@@ -1231,9 +1232,6 @@ export interface ModelStrategyConfig {
 }
 
 export const DEFAULT_MODEL_STRATEGY_CONFIG: ModelStrategyConfig = {
-  inferenceModel: "gpt-4.1",
-  lowComputeModel: "gpt-4.1-mini",
-  criticalModel: "gpt-4.1-nano",
   maxTokensPerTurn: 4096,
   hourlyBudgetCents: 0,
   sessionBudgetCents: 0,

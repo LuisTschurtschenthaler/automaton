@@ -25,6 +25,7 @@ import {
 import { ModelRegistry } from "../inference/registry.js";
 import { InferenceRouter } from "../inference/router.js";
 import { InferenceBudgetTracker } from "../inference/budget.js";
+import { resolveModelStrategy } from "../inference/auto-select.js";
 import {
   STATIC_MODEL_BASELINE,
   DEFAULT_ROUTING_MATRIX,
@@ -226,7 +227,8 @@ describe("InferenceRouter", () => {
     }
     registry = new ModelRegistry(db);
     registry.initialize();
-    budget = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
+    const resolved = resolveModelStrategy(DEFAULT_MODEL_STRATEGY_CONFIG, registry);
+    budget = new InferenceBudgetTracker(db, resolved);
     router = new InferenceRouter(db, registry, budget);
   });
 
@@ -996,9 +998,9 @@ describe("Inference DB Helpers", () => {
 
 describe("DEFAULT_MODEL_STRATEGY_CONFIG", () => {
   it("has sensible defaults", () => {
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.inferenceModel).toBe("gpt-4.1");
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.lowComputeModel).toBe("gpt-4.1-mini");
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.criticalModel).toBe("gpt-4.1-nano");
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.inferenceModel).toBeUndefined();
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.lowComputeModel).toBeUndefined();
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.criticalModel).toBeUndefined();
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.enableModelFallback).toBe(true);
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.hourlyBudgetCents).toBe(0); // no limit
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.sessionBudgetCents).toBe(0); // no limit

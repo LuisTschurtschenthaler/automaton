@@ -12,10 +12,8 @@ import readline from "readline";
 import chalk from "chalk";
 import { loadConfig, saveConfig, resolvePath } from "../config.js";
 import { DEFAULT_TREASURY_POLICY, DEFAULT_MODEL_STRATEGY_CONFIG } from "../types.js";
-import type { AutomatonConfig, ModelStrategyConfig, TreasuryPolicy, ModelEntry } from "../types.js";
+import type { AutomatonConfig, ModelStrategyConfig, TreasuryPolicy } from "../types.js";
 import { closePrompts } from "./prompts.js";
-import { createDatabase } from "../state/database.js";
-import { ModelRegistry } from "../inference/registry.js";
 import {
   githubDeviceFlow,
   validateGitHubToken,
@@ -103,55 +101,6 @@ async function askChoice<T extends string>(
 
 // ─── Model picker ─────────────────────────────────────────────────
 
-const PROVIDER_LABEL: Record<string, string> = {
-  conway: "Conway",
-  github: "GitHub Copilot",
-  groq: "Groq",
-  ollama: "Ollama",
-  other: "Other",
-};
-
-function printModelTable(models: ModelEntry[], currentModelId: string): void {
-  const numWidth = String(models.length).length;
-  for (let i = 0; i < models.length; i++) {
-    const m = models[i];
-    const num = String(i + 1).padStart(numWidth);
-    const provider = (PROVIDER_LABEL[m.provider] || m.provider).padEnd(9);
-    const cost =
-      m.costPer1kInput === 0
-        ? chalk.green("free     ")
-        : chalk.dim(`$${((m.costPer1kInput / 100 / 1000) * 1_000_000).toFixed(2)}/M in`);
-    const active = m.modelId === currentModelId ? chalk.green(" ◀ active") : "";
-    const tools = m.supportsTools ? "" : chalk.dim(" (no tools)");
-    console.log(
-      `  ${chalk.white(num + ".")} ${chalk.cyan(m.modelId.padEnd(36))} ${chalk.dim(provider)} ${cost}${tools}${active}`,
-    );
-  }
-}
-
-async function pickFromList(
-  label: string,
-  current: string,
-  models: ModelEntry[],
-): Promise<string> {
-  if (models.length === 0) {
-    return askRequiredString(label, current);
-  }
-  console.log(chalk.cyan(`\n  ── Select ${label} ──\n`));
-  printModelTable(models, current);
-  console.log("");
-  const raw = await ask(
-    `  ${chalk.white("→")} Enter number ${chalk.dim("(Enter to keep " + current + ")")}: `,
-  );
-  if (raw === "") return current;
-  const idx = parseInt(raw, 10) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= models.length) {
-    console.log(chalk.yellow(`  Invalid, keeping "${current}"`));
-    return current;
-  }
-  return models[idx].modelId;
-}
-
 // ─── Display helpers ──────────────────────────────────────────────
 
 /** Mask secrets: show first 8 chars + "***" + last 4 chars. */
@@ -188,7 +137,7 @@ function printMainMenu(config: AutomatonConfig): void {
   console.log(chalk.cyan("  └────────────────────────────────────────────┘"));
   console.log("");
   console.log(`  ${chalk.white("1.")} Inference Providers   ${dim(providers)}`);
-  console.log(`  ${chalk.white("2.")} Model Strategy        ${dim(config.inferenceModel)} / ${dim(strategy.maxTokensPerTurn + " tokens")}`);
+  console.log(`  ${chalk.white("2.")} Model Strategy        ${dim("auto")} / ${dim(strategy.maxTokensPerTurn + " tokens")}`);
   console.log(`  ${chalk.white("3.")} Treasury Policy       ${dim("max transfer: " + (config.treasuryPolicy?.maxSingleTransferCents ?? DEFAULT_TREASURY_POLICY.maxSingleTransferCents) + "¢")}`);
   console.log(`  ${chalk.white("4.")} General               ${dim(config.name)} / ${dim(config.logLevel)}`);
   console.log("");
@@ -255,33 +204,12 @@ async function configureProviders(config: AutomatonConfig): Promise<void> {
 
 async function configureModelStrategy(config: AutomatonConfig): Promise<void> {
   console.log(chalk.cyan("\n  ── Model Strategy ──────────────────────────────\n"));
-
-  // Load available models from registry + Ollama
-  const dbPath = resolvePath(config.dbPath);
-  const db = createDatabase(dbPath);
-  const registry = new ModelRegistry(db.raw);
-  registry.initialize();
-
-  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl;
-  if (ollamaBaseUrl) {
-    console.log(chalk.dim(`  Checking Ollama at ${ollamaBaseUrl}...`));
-    const { discoverOllamaModels } = await import("../ollama/discover.js");
-    await discoverOllamaModels(ollamaBaseUrl, db.raw);
-  }
-
-  const models = registry.getAll().filter((m) => m.enabled);
-  db.close();
+  console.log(chalk.dim("  Models are auto-selected from the registry at startup.\n"));
 
   const s: ModelStrategyConfig = {
     ...DEFAULT_MODEL_STRATEGY_CONFIG,
     ...(config.modelStrategy ?? {}),
   };
-
-  config.inferenceModel = await pickFromList("Active model", config.inferenceModel, models);
-  s.inferenceModel = config.inferenceModel;
-  s.lowComputeModel = await pickFromList("Low-compute fallback", s.lowComputeModel, models);
-  s.criticalModel = await pickFromList("Critical fallback", s.criticalModel, models);
-
 
   const maxTokens = await askNumber("Max tokens per turn", s.maxTokensPerTurn);
   s.maxTokensPerTurn = maxTokens;

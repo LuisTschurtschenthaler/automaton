@@ -52,7 +52,7 @@ export async function runModelPicker(): Promise<void> {
   }
 
   console.log(chalk.cyan("\n  Available Models\n"));
-  printModelTable(models, config.inferenceModel);
+  printModelTable(models, config.modelStrategy?.inferenceModel ?? "");
 
   console.log("");
   const input = await promptOptional("Enter model number (or press Enter to cancel)");
@@ -72,10 +72,10 @@ export async function runModelPicker(): Promise<void> {
   }
 
   const selected = models[idx];
-  config.inferenceModel = selected.modelId;
-  if (config.modelStrategy) {
-    config.modelStrategy.inferenceModel = selected.modelId;
+  if (!config.modelStrategy) {
+    config.modelStrategy = {} as any;
   }
+  config.modelStrategy!.inferenceModel = selected.modelId;
   saveConfig(config);
 
   console.log(chalk.green(`\n  Active model set to: ${selected.modelId} (${selected.displayName})`));

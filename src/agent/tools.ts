@@ -2392,7 +2392,6 @@ Model: ${ctx.inference.getDefaultModel()}
         }
 
         // Update config
-        ctx.config.inferenceModel = modelId;
         if (ctx.config.modelStrategy) {
           ctx.config.modelStrategy.inferenceModel = modelId;
         }

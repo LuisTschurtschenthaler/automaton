@@ -182,9 +182,6 @@ export const DEFAULT_ROUTING_MATRIX: RoutingMatrix = {
 // === Default Model Strategy Config ===
 
 export const DEFAULT_MODEL_STRATEGY_CONFIG: ModelStrategyConfig = {
-  inferenceModel: "gpt-4.1",
-  lowComputeModel: "gpt-4.1-mini",
-  criticalModel: "gpt-4.1-nano",
   maxTokensPerTurn: 4096,
   hourlyBudgetCents: 0,
   sessionBudgetCents: 0,

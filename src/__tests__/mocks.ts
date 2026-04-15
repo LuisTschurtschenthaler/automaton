@@ -332,7 +332,6 @@ export function createTestConfig(
     sandboxId: "test-sandbox-id",
     conwayApiUrl: "https://api.conway.tech",
     conwayApiKey: "test-api-key",
-    inferenceModel: "mock-model",
     maxTokensPerTurn: 4096,
     heartbeatConfigPath: "/tmp/test-heartbeat.yml",
     dbPath: "/tmp/test-state.db",

@@ -169,12 +169,20 @@ export async function runAgentLoop(
     logger.warn("GITHUB_TOKEN not set — GitHub Models discovery skipped. GitHub is the primary inference provider.");
   }
 
+  // Auto-select models from registry (replaces manual config)
+  const { resolveModelStrategy } = await import("../inference/auto-select.js");
+  const resolvedStrategy = resolveModelStrategy(modelStrategyConfig, modelRegistry);
+  Object.assign(modelStrategyConfig, resolvedStrategy);
+  if (config.modelStrategy) {
+    Object.assign(config.modelStrategy, resolvedStrategy);
+  }
+
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
   const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
 
-  // Validate configured models are actually reachable with available API keys
+  // Log resolved models and validate provider availability
   {
-    const configuredModels = [
+    const resolvedModels = [
       { label: "inferenceModel", id: modelStrategyConfig.inferenceModel },
       { label: "lowComputeModel", id: modelStrategyConfig.lowComputeModel },
       { label: "criticalModel", id: modelStrategyConfig.criticalModel },
@@ -184,7 +192,7 @@ export async function runAgentLoop(
     if (ollamaBaseUrl) availableProviders.push("ollama");
     logger.info(`Available inference providers: ${availableProviders.join(", ") || "none"}`);
 
-    for (const { label, id } of configuredModels) {
+    for (const { label, id } of resolvedModels) {
       if (!id) continue;
       const entry = modelRegistry.get(id);
       if (!entry) {

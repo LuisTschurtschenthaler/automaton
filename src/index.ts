@@ -172,7 +172,7 @@ Skills:     ${skills.length} active
 Heartbeats: ${heartbeats.filter((h) => h.enabled).length} active
 Children:   ${children.filter((c) => c.status !== "dead").length} alive / ${children.length} total
 Agent ID:   ${registry?.agentId || "not registered"}
-Model:      ${config.inferenceModel}
+Model:      ${config.modelStrategy?.inferenceModel ?? "auto"}
 Version:    ${config.version}
 ========================
 `);
@@ -292,9 +292,19 @@ async function run(): Promise<void> {
   // Create inference client — GitHub Copilot API (primary), Ollama (optional local)
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
+
+  // Auto-select models from registry (no manual config needed)
+  const { resolveModelStrategy } = await import("./inference/auto-select.js");
+  const { DEFAULT_MODEL_STRATEGY_CONFIG } = await import("./types.js");
+  const resolvedStrategy = resolveModelStrategy(
+    config.modelStrategy ?? DEFAULT_MODEL_STRATEGY_CONFIG,
+    modelRegistry,
+  );
+  config.modelStrategy = { ...config.modelStrategy, ...resolvedStrategy };
+
   const inference = createGitHubInferenceClient({
-    defaultModel: config.inferenceModel || "gpt-4.1-mini",
-    lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-4.1-nano",
+    defaultModel: resolvedStrategy.inferenceModel!,
+    lowComputeModel: resolvedStrategy.lowComputeModel!,
     githubToken: githubToken || "",
     ollamaBaseUrl,
     maxTokens: config.maxTokensPerTurn,
