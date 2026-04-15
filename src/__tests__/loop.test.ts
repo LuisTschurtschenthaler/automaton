@@ -491,7 +491,7 @@ describe("Agent Loop", () => {
     // The intervention message should have been injected after the 3rd idle-only turn.
     // Turn 4 should have the maintenance loop intervention as input.
     const interventionTurn = turns.find(
-      (t) => t.input?.includes("MAINTENANCE LOOP DETECTED"),
+      (t) => t.input?.includes("MAINTENANCE LOOP"),
     );
     expect(interventionTurn).toBeDefined();
     expect(interventionTurn!.input).toContain("status-check tools");
@@ -530,7 +530,7 @@ describe("Agent Loop", () => {
 
     // No maintenance loop intervention should have been injected
     const interventionTurn = turns.find(
-      (t) => t.input?.includes("MAINTENANCE LOOP DETECTED"),
+      (t) => t.input?.includes("MAINTENANCE LOOP"),
     );
     expect(interventionTurn).toBeUndefined();
   });
@@ -581,7 +581,7 @@ describe("Agent Loop", () => {
     });
 
     const interventionTurn = turns.find(
-      (t) => t.input?.includes("MAINTENANCE LOOP DETECTED"),
+      (t) => t.input?.includes("MAINTENANCE LOOP"),
     );
     expect(interventionTurn).toBeDefined();
   });
@@ -755,7 +755,7 @@ describe("Agent Loop", () => {
 
     // No maintenance loop detection should fire since discover_agents is NOT idle
     const maintenanceTurn = turns.find(
-      (t) => t.input?.includes("MAINTENANCE LOOP DETECTED"),
+      (t) => t.input?.includes("MAINTENANCE LOOP"),
     );
     expect(maintenanceTurn).toBeUndefined();
 

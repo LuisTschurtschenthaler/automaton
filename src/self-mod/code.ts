@@ -196,9 +196,12 @@ export function isProtectedFile(filePath: string): boolean {
         resolved === pattern) {
       return true;
     }
-    // Handle absolute patterns like /etc/systemd
-    if (pattern.startsWith("/") && resolved.startsWith(pattern)) {
-      return true;
+    // Handle absolute patterns like /etc/systemd, /proc, /sys
+    if (pattern.startsWith("/")) {
+      const resolvedPattern = path.resolve(pattern);
+      if (resolved.startsWith(resolvedPattern + path.sep) || resolved === resolvedPattern) {
+        return true;
+      }
     }
   }
 

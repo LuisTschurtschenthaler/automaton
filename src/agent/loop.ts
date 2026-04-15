@@ -391,6 +391,7 @@ export async function runAgentLoop(
   let lastToolPatterns: string[] = [];
   let loopWarningPattern: string | null = null;
   let idleToolTurns = 0;
+  let textOnlyTurns = 0; // Tracks consecutive turns where agent thinks but doesn't call tools
   // blockedGoalTurns removed — replaced by immediate sleep + exponential backoff
 
   // Drain any stale wake events from before this loop started,
@@ -427,7 +428,7 @@ export async function runAgentLoop(
 
   // ─── The Loop ──────────────────────────────────────────────
 
-  const MAX_IDLE_TURNS = 10; // Force sleep after N turns with no real work
+  const MAX_IDLE_TURNS = 5; // Force sleep after N turns with no real work
   let idleTurnCount = 0;
 
   const maxCycleTurns = config.maxTurnsPerCycle ?? 25;
@@ -817,9 +818,12 @@ export async function runAgentLoop(
           log(config, `[LOOP] Repetitive pattern detected: ${currentPattern}`);
           pendingInput = {
             content:
-              `LOOP DETECTED: You have called "${currentPattern}" ${MAX_REPETITIVE_TURNS} times in a row with similar results. ` +
-              `STOP repeating. If you have nothing productive to do, call the "sleep" tool to conserve credits. ` +
-              `Otherwise, pick ONE concrete task from your genesis prompt and execute it.`,
+              `LOOP DETECTED: You called "${currentPattern}" ${MAX_REPETITIVE_TURNS} times in a row. STOP.\n` +
+              `Your NEXT action must be DIFFERENT. Pick ONE:\n` +
+              `1. write_file — create code for a paid service\n` +
+              `2. exec — build, test, or deploy something\n` +
+              `3. sleep — if you have nothing to do\n` +
+              `Repeating the same pattern again will force sleep.`,
             source: "system",
           };
           loopWarningPattern = currentPattern;
@@ -844,11 +848,14 @@ export async function runAgentLoop(
             log(config, `[LOOP] Maintenance loop detected: ${idleToolTurns} consecutive idle-only turns`);
             pendingInput = {
               content:
-                `MAINTENANCE LOOP DETECTED: Your last ${idleToolTurns} turns only used status-check tools ` +
+                `MAINTENANCE LOOP: Your last ${idleToolTurns} turns only used status-check tools ` +
                 `(${turn.toolCalls.map((tc) => tc.name).join(", ")}). ` +
-                `You already know your status. If you have nothing productive to do, call the "sleep" tool ` +
-                `with a duration (e.g. 3600 for 1 hour) to conserve credits. Otherwise, execute a CONCRETE task ` +
-                `from your genesis prompt: write code, create a file, or build something new.`,
+                `You already know your status — it's in your system prompt. STOP CHECKING.\n` +
+                `Your NEXT action must be one of:\n` +
+                `1. write_file — create or modify code for a paid service\n` +
+                `2. exec — build, deploy, or test something\n` +
+                `3. sleep — if you have nothing productive to do\n` +
+                `Do NOT call check_credits, orchestrator_status, list_goals, or any read-only tool.`,
               source: "system",
             };
           }
@@ -872,6 +879,29 @@ export async function runAgentLoop(
         break;
       }
 
+      // ── Text-only turn detection (analysis paralysis) ──
+      // If the agent produces thinking text without calling ANY tools,
+      // it's stuck analyzing instead of acting.
+      if (turn.toolCalls.length === 0 && turn.thinking) {
+        textOnlyTurns++;
+        if (textOnlyTurns >= 2 && !pendingInput) {
+          log(config, `[STALL] ${textOnlyTurns} consecutive text-only turns — forcing action.`);
+          pendingInput = {
+            content:
+              `ANALYSIS PARALYSIS: You have spent ${textOnlyTurns} consecutive turns thinking without calling any tools. ` +
+              `Every turn of thinking burns the same credits as a turn of building. ` +
+              `Your NEXT action MUST be a write tool. Pick ONE of these and execute NOW:\n` +
+              `1. write_file — create a paid API, a tool, or a service\n` +
+              `2. exec — clone a repo to hunt bugs, build something, or deploy\n` +
+              `3. sleep — if you genuinely have nothing to do\n` +
+              `Do NOT respond with more thinking. Call a tool.`,
+            source: "system",
+          };
+        }
+      } else {
+        textOnlyTurns = 0;
+      }
+
       // ── Idle turn detection ──
       // If this turn had no pending input and didn't do any real work
       // (no mutations — only read/check/list/info tools), count as idle.
@@ -890,6 +920,9 @@ export async function runAgentLoop(
         "update_soul", "remember_fact", "set_goal", "complete_goal",
         "save_procedure", "note_about_agent", "forget",
         "enter_low_compute", "switch_model", "review_upstream_changes",
+        "github_create_repo", "github_create_file", "github_create_issue",
+        "github_create_pull", "github_setup_remote",
+        "create_goal", "cancel_goal",
       ]);
       const didMutate = turn.toolCalls.some((tc) => MUTATING_TOOLS.has(tc.name));
 
@@ -926,13 +959,16 @@ export async function runAgentLoop(
         (!response.toolCalls || response.toolCalls.length === 0) &&
         response.finishReason === "stop"
       ) {
-        // Agent produced text without tool calls.
-        // This is a natural pause point -- no work queued, sleep briefly.
-        log(config, "[IDLE] No pending inputs. Entering brief sleep.");
-        db.setKV(
-          "sleep_until",
-          new Date(Date.now() + 60_000).toISOString(),
-        );
+        // Agent produced text without tool calls — check if it's been stalling.
+        // If this is a repeated text-only turn, force sleep to break the cycle.
+        if (textOnlyTurns >= 3) {
+          log(config, "[STALL] Repeated text-only responses. Forcing sleep.");
+          db.setKV("sleep_until", new Date(Date.now() + 120_000).toISOString());
+          db.setKV("sleep_reason", "Forced sleep: analysis paralysis — agent produced text without actions for multiple turns");
+        } else {
+          log(config, "[IDLE] No tool calls. Entering brief sleep.");
+          db.setKV("sleep_until", new Date(Date.now() + 60_000).toISOString());
+        }
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
         running = false;

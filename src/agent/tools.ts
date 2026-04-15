@@ -41,8 +41,9 @@ function confinePathToSandbox(filePath: string): string | { error: string } {
     : filePath;
   // Resolve to absolute (relative paths resolve against SANDBOX_HOME)
   const resolved = nodePath.resolve(SANDBOX_HOME, expanded);
+  const resolvedHome = nodePath.resolve(SANDBOX_HOME);
   // Ensure the resolved path is within the sandbox home
-  if (resolved !== SANDBOX_HOME && !resolved.startsWith(SANDBOX_HOME + "/")) {
+  if (resolved !== resolvedHome && !resolved.startsWith(resolvedHome + nodePath.sep)) {
     return {
       error: `Blocked: write_file path "${filePath}" resolves to "${resolved}" which is outside the allowed directory (${SANDBOX_HOME}). Writes are confined to the sandbox home.`,
     };

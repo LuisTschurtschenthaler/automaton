@@ -16,6 +16,7 @@ import {
   createTestConfig,
 } from "./mocks.js";
 import type { AutomatonDatabase, ToolContext, AutomatonTool, RiskLevel } from "../types.js";
+import path from "node:path";
 
 // Mock erc8004.js to avoid ABI parse error
 vi.mock("../registry/erc8004.js", () => ({
@@ -237,9 +238,10 @@ describe("write_file / edit_own_file protection parity", () => {
       { path: "project/file.txt", content: "safe content" },
       ctx,
     );
-    // Relative paths resolve against /root, so "project/file.txt" -> "/root/project/file.txt"
+    // Relative paths resolve against /root (sandbox home)
     expect(result).toContain("File written");
-    expect(result).toContain("/root/project/file.txt");
+    const expectedPath = path.resolve("/root", "project/file.txt");
+    expect(result).toContain(expectedPath);
   });
 
   it("write_file allows tilde paths within sandbox home", async () => {
@@ -249,7 +251,8 @@ describe("write_file / edit_own_file protection parity", () => {
       ctx,
     );
     expect(result).toContain("File written");
-    expect(result).toContain("/root/.automaton/skills/test/SKILL.md");
+    const expectedPath = path.resolve("/root", ".automaton/skills/test/SKILL.md");
+    expect(result).toContain(expectedPath);
   });
 });
 
