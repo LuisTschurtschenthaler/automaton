@@ -21,6 +21,9 @@ import type {
 import { ModelRegistry } from "./registry.js";
 import { InferenceBudgetTracker } from "./budget.js";
 import { DEFAULT_ROUTING_MATRIX, TASK_TIMEOUTS } from "./types.js";
+import { createLogger } from "../observability/logger.js";
+
+const logger = createLogger("router");
 
 type Database = BetterSqlite3.Database;
 
@@ -81,6 +84,7 @@ export class InferenceRouter {
     }
 
     let lastError: Error | undefined;
+    const failures: { model: string; provider: string; error: string }[] = [];
 
     for (const model of candidates) {
       // 2. Estimate cost and check budget
@@ -151,12 +155,18 @@ export class InferenceRouter {
         }
       } catch (error: any) {
         const latencyMs = Date.now() - startTime;
+        const errMsg = error.message || String(error);
         if (error.name === "AbortError") {
           // Timeout — try next candidate
-          lastError = new Error(`Inference timeout after ${timeout}ms (model: ${model.modelId})`);
+          const msg = `Inference timeout after ${timeout}ms (model: ${model.modelId})`;
+          logger.warn(`Candidate ${model.modelId}(${model.provider}) failed: ${msg}`, { latencyMs });
+          failures.push({ model: model.modelId, provider: model.provider, error: msg });
+          lastError = new Error(msg);
           continue;
         }
         // Retryable provider errors — try next candidate
+        logger.warn(`Candidate ${model.modelId}(${model.provider}) failed: ${errMsg.slice(0, 200)}`, { latencyMs });
+        failures.push({ model: model.modelId, provider: model.provider, error: errMsg.slice(0, 200) });
         lastError = error;
         continue;
       }
@@ -199,8 +209,14 @@ export class InferenceRouter {
     };
     } // end for-each candidate
 
-    // All candidates failed — re-throw the last error
-    throw lastError || new Error("All inference candidates failed");
+    // All candidates failed — build a detailed error with all failures
+    const summary = failures.map((f) => `${f.model}(${f.provider}): ${f.error}`).join(" | ");
+    const allFailedError = new Error(
+      `All inference candidates failed [${failures.length}/${candidates.length}]: ${summary}`,
+    );
+    // Preserve the original stack from the last error for debugging
+    if (lastError?.stack) allFailedError.stack = lastError.stack;
+    throw allFailedError;
   }
 
   /**

@@ -1005,6 +1005,7 @@ export async function runAgentLoop(
         err.message?.includes("insufficient_quota") ||
         err.message?.includes("invalid_api_key") ||
         err.message?.includes("invalid_request_error") ||
+        err.message?.includes("All inference candidates failed") ||
         err.message?.includes("All providers failed") ||
         (err.message?.includes("401") && err.message?.includes("Inference error")) ||
         (err.message?.includes("400") && err.message?.includes("Inference error"));
