@@ -293,7 +293,11 @@ export async function discoverGitHubModels(
       costPer1kInput: staticMatch?.costPer1kInput ?? existing?.costPer1kInput ?? 0,
       costPer1kOutput: staticMatch?.costPer1kOutput ?? existing?.costPer1kOutput ?? 0,
       maxTokens: staticMatch?.maxTokens ?? existing?.maxTokens ?? 16384,
-      contextWindow: staticMatch?.contextWindow ?? existing?.contextWindow ?? 128000,
+      // Prefer existing DB contextWindow if it was corrected down (e.g. by a 413 response)
+      // over the static baseline which may overstate the limit.
+      contextWindow: existing?.contextWindow
+        ? Math.min(existing.contextWindow, staticMatch?.contextWindow ?? existing.contextWindow)
+        : staticMatch?.contextWindow ?? 128000,
       supportsTools: staticMatch?.supportsTools ?? existing?.supportsTools ?? true,
       supportsVision: staticMatch?.supportsVision ?? existing?.supportsVision ?? false,
       parameterStyle: staticMatch?.parameterStyle ?? existing?.parameterStyle ?? "max_completion_tokens",

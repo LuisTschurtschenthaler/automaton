@@ -90,17 +90,29 @@ export function autoSelectModels(registry: ModelRegistry): ResolvedModels {
 
 /**
  * Fill missing model fields in a ModelStrategyConfig from the registry.
- * Fields already set (non-empty) are preserved.
+ * Configured models are only preserved if they actually exist and are
+ * enabled in the registry — stale IDs from old configs are discarded.
  */
 export function resolveModelStrategy(
   strategy: ModelStrategyConfig,
   registry: ModelRegistry,
 ): ModelStrategyConfig {
   const resolved = autoSelectModels(registry);
+
+  const keep = (id: string | undefined): string | undefined => {
+    if (!id) return undefined;
+    const entry = registry.get(id);
+    if (!entry || !entry.enabled) {
+      logger.warn(`Configured model "${id}" not found or disabled in registry — using auto-selected replacement`);
+      return undefined;
+    }
+    return id;
+  };
+
   return {
     ...strategy,
-    inferenceModel: strategy.inferenceModel || resolved.inferenceModel,
-    lowComputeModel: strategy.lowComputeModel || resolved.lowComputeModel,
-    criticalModel: strategy.criticalModel || resolved.criticalModel,
+    inferenceModel: keep(strategy.inferenceModel) ?? resolved.inferenceModel,
+    lowComputeModel: keep(strategy.lowComputeModel) ?? resolved.lowComputeModel,
+    criticalModel: keep(strategy.criticalModel) ?? resolved.criticalModel,
   };
 }

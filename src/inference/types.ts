@@ -49,8 +49,9 @@ export const TASK_TIMEOUTS: Record<string, number> = {
 // GitHub Models is the sole inference provider (Enterprise plan — no per-token billing).
 
 export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | "updatedAt">[] = [
-  // ── GitHub Models (primary provider — Copilot Enterprise) ──
-  // Enterprise plan: full context windows, no per-token billing, high RPM.
+  // ── GitHub Models (primary provider) ──
+  // Context windows reflect GitHub Models enforced limits, not theoretical OpenAI maximums.
+  // The router self-corrects via 413 responses if these drift.
   {
     modelId: "gpt-4.1",
     provider: "github",
@@ -58,8 +59,8 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
     tierMinimum: "normal",
     costPer1kInput: 0,
     costPer1kOutput: 0,
-    maxTokens: 32768,
-    contextWindow: 1047576,
+    maxTokens: 4096,
+    contextWindow: 8000,
     supportsTools: true,
     supportsVision: true,
     parameterStyle: "max_completion_tokens",
@@ -72,8 +73,8 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
     tierMinimum: "low_compute",
     costPer1kInput: 0,
     costPer1kOutput: 0,
-    maxTokens: 16384,
-    contextWindow: 1047576,
+    maxTokens: 4096,
+    contextWindow: 8000,
     supportsTools: true,
     supportsVision: true,
     parameterStyle: "max_completion_tokens",
@@ -86,8 +87,8 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
     tierMinimum: "critical",
     costPer1kInput: 0,
     costPer1kOutput: 0,
-    maxTokens: 16384,
-    contextWindow: 1047576,
+    maxTokens: 4096,
+    contextWindow: 8000,
     supportsTools: true,
     supportsVision: false,
     parameterStyle: "max_completion_tokens",
