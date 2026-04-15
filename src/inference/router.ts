@@ -127,12 +127,13 @@ export class InferenceRouter {
 
       // 4. Fit messages into model's context window.
       //    GitHub Models free tier only allows 8k tokens per request.
-      //    Reserve space for output tokens; trim oldest messages if needed.
+      //    Reserve space for output tokens and tool definitions; trim oldest messages if needed.
       const preference = this.getPreference(tier, taskType);
       let effectiveMaxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
       effectiveMaxTokens = Math.min(effectiveMaxTokens, model.contextWindow / 2);
 
-      const inputBudget = model.contextWindow - effectiveMaxTokens;
+      const toolsTokens = this.estimateToolsTokens(tools);
+      const inputBudget = Math.floor((model.contextWindow - effectiveMaxTokens - toolsTokens) * 0.9);
       const transformedMessages = this.fitMessagesToContext(messages, inputBudget);
 
       // 5. Build inference options
@@ -185,12 +186,14 @@ export class InferenceRouter {
             model = { ...model, contextWindow: correctedContextWindow };
             this.registry.upsert({ ...model, updatedAt: new Date().toISOString() });
 
-            // Recalculate budgets with the real limit
+            // Recalculate budgets with the real limit — apply a 25% haircut
+            // in case our char-based estimate still overshoots actual tokenisation.
             const retryMaxTokens = Math.min(
               request.maxTokens || preference?.maxTokens || model.maxTokens,
               Math.floor(correctedContextWindow / 2),
             );
-            const retryInputBudget = correctedContextWindow - retryMaxTokens;
+            const retryToolsTokens = this.estimateToolsTokens(tools);
+            const retryInputBudget = Math.floor((correctedContextWindow - retryMaxTokens - retryToolsTokens) * 0.75);
             messagesToSend = this.fitMessagesToContext(messages, retryInputBudget);
             inferenceOptions.maxTokens = retryMaxTokens;
 
@@ -390,13 +393,26 @@ export class InferenceRouter {
   }
 
   /**
+   * Estimate tokens consumed by tool/function definitions.
+   * Uses the conservative 1 token ≈ 3 chars ratio.
+   */
+  private estimateToolsTokens(tools: unknown[] | undefined): number {
+    if (!tools || tools.length === 0) return 0;
+    return Math.ceil(JSON.stringify(tools).length / 3);
+  }
+
+  /**
    * Trim messages to fit within a token budget.
    * Keeps the system message, then fills with the most-recent messages.
-   * Uses the rough estimate of 1 token ≈ 4 chars.
+   * Uses a conservative estimate of 1 token ≈ 3 chars (accounts for
+   * non-ASCII text, per-message framing overhead, and tokeniser variance).
    */
   private fitMessagesToContext(messages: any[], tokenBudget: number): any[] {
+    // 3 chars/token is conservative but avoids repeated 413s;
+    // per-message overhead (role, separators) adds ~4 tokens each.
+    const MSG_OVERHEAD = 4;
     const estimateTokens = (msg: any): number =>
-      Math.ceil(((msg.content?.length || 0) + (msg.tool_calls ? JSON.stringify(msg.tool_calls).length : 0)) / 4);
+      MSG_OVERHEAD + Math.ceil(((msg.content?.length || 0) + (msg.tool_calls ? JSON.stringify(msg.tool_calls).length : 0)) / 3);
 
     const totalTokens = messages.reduce((sum, m) => sum + estimateTokens(m), 0);
     if (totalTokens <= tokenBudget) return messages;
