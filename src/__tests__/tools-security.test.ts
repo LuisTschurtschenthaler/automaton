@@ -74,6 +74,17 @@ describe("Tool Risk Level Classification", () => {
     start_child: "caution",
     message_child: "caution",
     prune_dead_children: "caution",
+    github_create_repo: "caution",
+    github_create_file: "caution",
+    github_create_issue: "caution",
+    github_create_pull: "caution",
+    github_setup_remote: "caution",
+
+    // Safe GitHub tools
+    github_list_repos: "safe",
+    github_get_file: "safe",
+    github_list_issues: "safe",
+    github_list_pulls: "safe",
 
     // Dangerous tools (significant side effects)
     delete_sandbox: "dangerous",

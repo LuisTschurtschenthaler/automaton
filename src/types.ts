@@ -160,7 +160,8 @@ export type ToolCategory =
   | "git"
   | "registry"
   | "replication"
-  | "memory";
+  | "memory"
+  | "github";
 
 export interface ToolContext {
   identity: AutomatonIdentity;

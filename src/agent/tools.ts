@@ -1391,6 +1391,293 @@ Model: ${ctx.inference.getDefaultModel()}
       },
     },
 
+    // ── GitHub API Tools ──
+    {
+      name: "github_create_repo",
+      description:
+        "Create a new private GitHub repository. Requires a configured GitHub token.",
+      category: "github",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Repository name (alphanumeric, hyphens, underscores, dots)",
+          },
+          description: {
+            type: "string",
+            description: "Repository description (optional)",
+          },
+        },
+        required: ["name"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { createRepository } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const repo = await createRepository(client, args.name as string, args.description as string | undefined);
+        return `Repository created: ${repo.full_name} (private: ${repo.private})\nURL: ${repo.html_url}\nDefault branch: ${repo.default_branch}`;
+      },
+    },
+    {
+      name: "github_list_repos",
+      description: "List your GitHub repositories, sorted by most recently updated.",
+      category: "github",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          page: { type: "number", description: "Page number (default: 1)" },
+          per_page: { type: "number", description: "Results per page, max 100 (default: 30)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { listRepositories } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const repos = await listRepositories(client, (args.page as number) || 1, (args.per_page as number) || 30);
+        if (repos.length === 0) return "No repositories found.";
+        return repos
+          .map((r) => `${r.full_name} ${r.private ? "(private)" : "(public)"} — ${r.description || "no description"} [${r.language || "unknown"}]`)
+          .join("\n");
+      },
+    },
+    {
+      name: "github_get_file",
+      description: "Read a file from a GitHub repository.",
+      category: "github",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository name (your own repo)" },
+          path: { type: "string", description: "File path within the repository" },
+          ref: { type: "string", description: "Branch or commit SHA (optional, defaults to default branch)" },
+        },
+        required: ["repo", "path"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { getFile } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const { content, sha } = await getFile(client, args.repo as string, args.path as string, args.ref as string | undefined);
+        return `SHA: ${sha}\n---\n${content}`;
+      },
+    },
+    {
+      name: "github_create_file",
+      description:
+        "Create or update a file in a GitHub repository via the API (creates a commit). For updates, provide the current SHA of the file.",
+      category: "github",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository name" },
+          path: { type: "string", description: "File path within the repository" },
+          content: { type: "string", description: "File content" },
+          message: { type: "string", description: "Commit message" },
+          branch: { type: "string", description: "Target branch (optional)" },
+          sha: { type: "string", description: "Current file SHA (required for updates)" },
+        },
+        required: ["repo", "path", "content", "message"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { createOrUpdateFile } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const result = await createOrUpdateFile(
+          client,
+          args.repo as string,
+          args.path as string,
+          args.content as string,
+          args.message as string,
+          { branch: args.branch as string | undefined, sha: args.sha as string | undefined },
+        );
+        return `Committed: ${result.sha.slice(0, 7)}\nURL: ${result.html_url}`;
+      },
+    },
+    {
+      name: "github_create_issue",
+      description: "Create an issue in a GitHub repository.",
+      category: "github",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository name" },
+          title: { type: "string", description: "Issue title" },
+          body: { type: "string", description: "Issue body (optional)" },
+          labels: {
+            type: "array",
+            items: { type: "string" },
+            description: "Labels to apply (optional)",
+          },
+        },
+        required: ["repo", "title"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { createIssue } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const issue = await createIssue(
+          client,
+          args.repo as string,
+          args.title as string,
+          args.body as string | undefined,
+          args.labels as string[] | undefined,
+        );
+        return `Issue #${issue.number} created: ${issue.title}\nURL: ${issue.html_url}`;
+      },
+    },
+    {
+      name: "github_list_issues",
+      description: "List issues in a GitHub repository.",
+      category: "github",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository name" },
+          state: { type: "string", description: "Filter by state: open, closed, all (default: open)" },
+          page: { type: "number", description: "Page number (default: 1)" },
+        },
+        required: ["repo"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { listIssues } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const issues = await listIssues(
+          client,
+          args.repo as string,
+          (args.state as "open" | "closed" | "all") || "open",
+          (args.page as number) || 1,
+        );
+        if (issues.length === 0) return "No issues found.";
+        return issues
+          .map((i) => `#${i.number} [${i.state}] ${i.title}${i.labels.length ? ` (${i.labels.map((l) => l.name).join(", ")})` : ""}`)
+          .join("\n");
+      },
+    },
+    {
+      name: "github_create_pull",
+      description: "Create a pull request in a GitHub repository.",
+      category: "github",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository name" },
+          title: { type: "string", description: "PR title" },
+          head: { type: "string", description: "Source branch" },
+          base: { type: "string", description: "Target branch (e.g. main)" },
+          body: { type: "string", description: "PR description (optional)" },
+        },
+        required: ["repo", "title", "head", "base"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { createPullRequest } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const pr = await createPullRequest(
+          client,
+          args.repo as string,
+          args.title as string,
+          args.head as string,
+          args.base as string,
+          args.body as string | undefined,
+        );
+        return `PR #${pr.number} created: ${pr.title}\n${pr.head.ref} → ${pr.base.ref}\nURL: ${pr.html_url}`;
+      },
+    },
+    {
+      name: "github_list_pulls",
+      description: "List pull requests in a GitHub repository.",
+      category: "github",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository name" },
+          state: { type: "string", description: "Filter by state: open, closed, all (default: open)" },
+          page: { type: "number", description: "Page number (default: 1)" },
+        },
+        required: ["repo"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { listPullRequests } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        const prs = await listPullRequests(
+          client,
+          args.repo as string,
+          (args.state as "open" | "closed" | "all") || "open",
+          (args.page as number) || 1,
+        );
+        if (prs.length === 0) return "No pull requests found.";
+        return prs
+          .map((p) => `#${p.number} [${p.state}${p.merged ? "/merged" : ""}] ${p.title} (${p.head.ref} → ${p.base.ref})`)
+          .join("\n");
+      },
+    },
+    {
+      name: "github_setup_remote",
+      description:
+        "Configure a git remote in your sandbox with GitHub token authentication, enabling push access. The token is stored only in git config, never exposed.",
+      category: "github",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          repo_path: {
+            type: "string",
+            description: "Local repository path in the sandbox",
+          },
+          repo_name: {
+            type: "string",
+            description: "GitHub repository name",
+          },
+          remote_name: {
+            type: "string",
+            description: "Remote name (default: origin)",
+          },
+        },
+        required: ["repo_path", "repo_name"],
+      },
+      execute: async (args, ctx) => {
+        const token = ctx.config.githubToken;
+        if (!token) return "GitHub token not configured. Set githubToken in config.";
+        const { GitHubClient } = await import("../github/client.js");
+        const { setupGitRemote } = await import("../github/tools.js");
+        const client = new GitHubClient(token);
+        return await setupGitRemote(
+          client,
+          ctx.conway,
+          args.repo_path as string,
+          args.repo_name as string,
+          (args.remote_name as string) || "origin",
+        );
+      },
+    },
+
     // ── Registry Tools ──
     {
       name: "register_erc8004",
