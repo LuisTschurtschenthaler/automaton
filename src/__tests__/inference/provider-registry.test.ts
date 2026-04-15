@@ -66,16 +66,14 @@ describe("ProviderRegistry", () => {
     const registry = ProviderRegistry.fromConfig(makeMissingPath());
 
     const providers = registry.getProviders();
-    expect(providers.length).toBe(5);
+    expect(providers.length).toBe(4);
     expect(providers.map((provider) => provider.id)).toEqual([
-      "openai",
-      "anthropic",
       "groq",
       "together",
+      "github",
       "local",
     ]);
-    expect(providers.find((provider) => provider.id === "openai")?.enabled).toBe(true);
-    expect(providers.find((provider) => provider.id === "anthropic")?.enabled).toBe(true);
+    expect(providers.find((provider) => provider.id === "groq")?.enabled).toBe(true);
     expect(providers.find((provider) => provider.id === "together")?.enabled).toBe(false);
   });
 
@@ -85,20 +83,20 @@ describe("ProviderRegistry", () => {
     fs.writeFileSync(filePath, "{ not json", "utf8");
 
     const registry = ProviderRegistry.fromConfig(filePath);
-    expect(registry.getProviders().length).toBe(5);
-    expect(registry.resolveModel("reasoning").provider.id).toBe("openai");
+    expect(registry.getProviders().length).toBe(4);
+    expect(registry.resolveModel("reasoning").provider.id).toBe("github");
   });
 
   it("fromConfig applies provider overrides", () => {
     const filePath = makeTempConfigFile({
       providers: [
         {
-          id: "openai",
-          name: "OpenAI Custom",
-          baseUrl: "https://api.custom/v1",
-          apiKeyEnvVar: "OPENAI_API_KEY",
+          id: "github",
+          name: "GitHub Custom",
+          baseUrl: "https://custom.github.ai/v1",
+          apiKeyEnvVar: "GITHUB_TOKEN",
           enabled: true,
-          priority: 4,
+          priority: 1,
           models: [
             {
               id: "gpt-x",
@@ -120,7 +118,7 @@ describe("ProviderRegistry", () => {
     const providers = registry.getProviders();
 
     expect(providers).toHaveLength(1);
-    expect(providers[0].name).toBe("OpenAI Custom");
+    expect(providers[0].name).toBe("GitHub Custom");
     expect(registry.resolveModel("reasoning").model.id).toBe("gpt-x");
   });
 
@@ -128,14 +126,14 @@ describe("ProviderRegistry", () => {
     const filePath = makeTempConfigFile({
       tierDefaults: {
         fast: {
-          preferredProvider: "openai",
+          preferredProvider: "github",
           fallbackOrder: ["groq"],
         },
       },
     });
 
     const registry = ProviderRegistry.fromConfig(filePath);
-    expect(registry.resolveModel("fast").provider.id).toBe("openai");
+    expect(registry.resolveModel("fast").provider.id).toBe("github");
   });
 
   it("fromConfig ignores invalid providers payload", () => {
@@ -146,7 +144,7 @@ describe("ProviderRegistry", () => {
     });
 
     const registry = ProviderRegistry.fromConfig(filePath);
-    expect(registry.getProviders().length).toBe(5);
+    expect(registry.getProviders().length).toBe(4);
   });
 
   it("fromConfig uses emergencyStopCredits from config", () => {
@@ -167,8 +165,8 @@ describe("ProviderRegistry", () => {
     const registry = createRegistryFromDefaults();
     const resolved = registry.resolveModel("reasoning");
 
-    expect(resolved.provider.id).toBe("openai");
-    expect(resolved.model.id).toBe("gpt-4.1");
+    expect(resolved.provider.id).toBe("github");
+    expect(resolved.model.id).toBe("gpt-4o");
   });
 
   it("resolveModel returns fast model from default tier", () => {
@@ -189,7 +187,7 @@ describe("ProviderRegistry", () => {
 
   it("resolveCandidates returns fallback order for reasoning tier", () => {
     const registry = createRegistryFromDefaults();
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "anthropic", "groq"]);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["github", "groq"]);
   });
 
   it("resolveCandidates skips providers disabled in config", () => {
@@ -227,9 +225,9 @@ describe("ProviderRegistry", () => {
     const filePath = makeTempConfigFile({
       providers: [
         {
-          id: "openai",
-          baseUrl: "https://api.openai.com/v1",
-          apiKeyEnvVar: "OPENAI_API_KEY",
+          id: "github",
+          baseUrl: "https://models.inference.ai.azure.com",
+          apiKeyEnvVar: "GITHUB_TOKEN",
           priority: 1,
           enabled: true,
           models: [
@@ -259,11 +257,11 @@ describe("ProviderRegistry", () => {
   it("disableProvider and enableProvider toggle provider availability", () => {
     const registry = createRegistryFromDefaults();
 
-    registry.disableProvider("openai", "manual", 60_000);
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["anthropic", "groq"]);
+    registry.disableProvider("github", "manual", 60_000);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["groq"]);
 
-    registry.enableProvider("openai");
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "anthropic", "groq"]);
+    registry.enableProvider("github");
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["github", "groq"]);
   });
 
   it("disableProvider ignores unknown provider IDs", () => {
@@ -274,20 +272,20 @@ describe("ProviderRegistry", () => {
   it("disableProvider with duration 0 expires immediately", () => {
     const registry = createRegistryFromDefaults();
 
-    registry.disableProvider("openai", "temporary", 0);
-    expect(providerIdsForTier(registry, "reasoning")).toContain("openai");
+    registry.disableProvider("github", "temporary", 0);
+    expect(providerIdsForTier(registry, "reasoning")).toContain("github");
   });
 
   it("temporary disablement expires after duration", () => {
     vi.useFakeTimers();
 
     const registry = createRegistryFromDefaults();
-    registry.disableProvider("openai", "maintenance", 5_000);
+    registry.disableProvider("github", "maintenance", 5_000);
 
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["anthropic", "groq"]);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["groq"]);
 
     vi.advanceTimersByTime(5_001);
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "anthropic", "groq"]);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["github", "groq"]);
 
     vi.useRealTimers();
   });
@@ -321,10 +319,10 @@ describe("ProviderRegistry", () => {
 
   it("getModel returns requested provider/model", () => {
     const registry = createRegistryFromDefaults();
-    const resolved = registry.getModel("openai", "gpt-4.1-mini");
+    const resolved = registry.getModel("github", "gpt-4o-mini");
 
-    expect(resolved.provider.id).toBe("openai");
-    expect(resolved.model.id).toBe("gpt-4.1-mini");
+    expect(resolved.provider.id).toBe("github");
+    expect(resolved.model.id).toBe("gpt-4o-mini");
   });
 
   it("getModel throws for unknown provider", () => {
@@ -334,14 +332,14 @@ describe("ProviderRegistry", () => {
 
   it("getModel throws for unknown model on known provider", () => {
     const registry = createRegistryFromDefaults();
-    expect(() => registry.getModel("openai", "missing-model")).toThrow(/Unknown model/);
+    expect(() => registry.getModel("github", "missing-model")).toThrow(/Unknown model/);
   });
 
   it("getModel throws when provider is disabled", () => {
     const registry = createRegistryFromDefaults();
-    registry.disableProvider("openai", "circuit-breaker", 60_000);
+    registry.disableProvider("github", "circuit-breaker", 60_000);
 
-    expect(() => registry.getModel("openai", "gpt-4.1")).toThrow(/disabled/);
+    expect(() => registry.getModel("github", "gpt-4o")).toThrow(/disabled/);
   });
 
   it("emergency policy blocks non-planner calls below threshold", () => {
@@ -404,7 +402,7 @@ describe("ProviderRegistry", () => {
     registry.resolveModel("fast");
 
     // Each resolveCandidates call creates a client per available provider with a model for that tier.
-    // reasoning: openai + anthropic + groq = 3; fast: groq + anthropic + openai = 3 → 6 total
-    expect(openAiCtor).toHaveBeenCalledTimes(6);
+    // reasoning: github + groq = 2; fast: groq + github = 2 → 4 total
+    expect(openAiCtor).toHaveBeenCalledTimes(4);
   });
 });

@@ -82,7 +82,7 @@ describe("ModelRegistry", () => {
     const entry = registry.get("gpt-4.1");
     expect(entry).toBeDefined();
     expect(entry!.modelId).toBe("gpt-4.1");
-    expect(entry!.provider).toBe("openai");
+    expect(entry!.provider).toBe("conway");
   });
 
   it("get returns undefined for unknown model", () => {
@@ -219,7 +219,7 @@ describe("InferenceRouter", () => {
 
   beforeEach(() => {
     // Ensure provider availability checks pass in the test environment
-    for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CONWAY_API_KEY"]) {
+    for (const key of ["CONWAY_API_KEY", "GITHUB_TOKEN"]) {
       savedEnv[key] = process.env[key];
       process.env[key] = process.env[key] || "test-key";
     }
@@ -240,19 +240,19 @@ describe("InferenceRouter", () => {
     it("returns correct model for normal/agent_turn", () => {
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("claude-sonnet-4-20250514");
+      expect(model!.modelId).toBe("gpt-5.2");
     });
 
     it("returns cheaper model for low_compute tier", () => {
       const model = router.selectModel("low_compute", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("claude-haiku-4-5-20251001");
+      expect(model!.modelId).toBe("gpt-5-mini");
     });
 
     it("returns minimal model for critical tier", () => {
       const model = router.selectModel("critical", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("claude-haiku-4-5-20251001");
+      expect(model!.modelId).toBe("gpt-5-mini");
     });
 
     it("returns null for dead tier", () => {
@@ -266,10 +266,10 @@ describe("InferenceRouter", () => {
     });
 
     it("skips disabled models and picks next candidate", () => {
-      registry.setEnabled("claude-sonnet-4-20250514", false);
+      registry.setEnabled("gpt-5.2", false);
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5.2");
+      expect(model!.modelId).toBe("gpt-4o");
     });
   });
 
@@ -292,13 +292,13 @@ describe("InferenceRouter", () => {
       );
 
       expect(result.content).toBe("Hello!");
-      expect(result.model).toBe("claude-sonnet-4-20250514");
+      expect(result.model).toBe("gpt-5.2");
       expect(result.finishReason).toBe("stop");
 
       // Verify cost was recorded
       const costs = inferenceGetSessionCosts(db, "test-session");
       expect(costs.length).toBe(1);
-      expect(costs[0].model).toBe("claude-sonnet-4-20250514");
+      expect(costs[0].model).toBe("gpt-5.2");
     });
 
     it("computes actualCostCents accurately from token usage", async () => {
@@ -369,7 +369,7 @@ describe("InferenceRouter", () => {
         sessionId: "budget-session",
         turnId: null,
         model: "gpt-4.1",
-        provider: "openai",
+        provider: "conway",
         inputTokens: 1000,
         outputTokens: 500,
         costCents: 4,
@@ -442,17 +442,17 @@ describe("InferenceRouter", () => {
   });
 
   describe("transformMessagesForProvider", () => {
-    it("handles OpenAI format correctly (no transformation needed)", () => {
+    it("handles message format correctly (merges consecutive same-role)", () => {
       const messages = [
         { role: "system" as const, content: "You are helpful" },
         { role: "user" as const, content: "Hello" },
         { role: "assistant" as const, content: "Hi there" },
       ];
-      const result = router.transformMessagesForProvider(messages, "openai");
+      const result = router.transformMessagesForProvider(messages, "conway");
       expect(result.length).toBe(3);
     });
 
-    it("handles Anthropic format: merges consecutive tool messages", () => {
+    it("merges consecutive tool messages", () => {
       const messages = [
         { role: "user" as const, content: "Do something" },
         {
@@ -466,42 +466,18 @@ describe("InferenceRouter", () => {
         { role: "tool" as const, content: "result1", tool_call_id: "tc1" },
         { role: "tool" as const, content: "result2", tool_call_id: "tc2" },
       ];
-      const result = router.transformMessagesForProvider(messages, "anthropic");
+      const result = router.transformMessagesForProvider(messages, "conway");
 
-      // The two tool messages should be merged into one user message
-      const userMessages = result.filter((m) => m.role === "user");
-      // Original user + merged tool results = 2 user messages
-      expect(userMessages.length).toBe(2);
-
-      // The merged tool result message should contain both results
-      const lastUser = result[result.length - 1];
-      expect(lastUser.role).toBe("user");
-      expect(lastUser.content).toContain("result1");
-      expect(lastUser.content).toContain("result2");
+      // Tool messages don't get merged by mergeConsecutiveSameRole (they're "tool" role, excluded)
+      expect(result.length).toBe(4);
     });
 
-    it("Anthropic: alternating user/assistant maintained", () => {
-      const messages = [
-        { role: "user" as const, content: "First" },
-        { role: "assistant" as const, content: "Response" },
-        { role: "user" as const, content: "Second" },
-      ];
-      const result = router.transformMessagesForProvider(messages, "anthropic");
-
-      // Verify alternating pattern
-      for (let i = 1; i < result.length; i++) {
-        if (result[i].role !== "system") {
-          expect(result[i].role).not.toBe(result[i - 1].role);
-        }
-      }
-    });
-
-    it("Anthropic: merges consecutive same-role user messages", () => {
+    it("merges consecutive same-role user messages", () => {
       const messages = [
         { role: "user" as const, content: "First" },
         { role: "user" as const, content: "Second" },
       ];
-      const result = router.transformMessagesForProvider(messages, "anthropic");
+      const result = router.transformMessagesForProvider(messages, "conway");
       expect(result.length).toBe(1);
       expect(result[0].content).toContain("First");
       expect(result[0].content).toContain("Second");
@@ -509,17 +485,17 @@ describe("InferenceRouter", () => {
 
     it("throws error for empty message array", () => {
       expect(() => {
-        router.transformMessagesForProvider([], "openai");
+        router.transformMessagesForProvider([], "conway");
       }).toThrow("Cannot route inference with empty message array");
     });
 
-    it("merges consecutive same-role messages for OpenAI", () => {
+    it("merges consecutive same-role messages for github", () => {
       const messages = [
         { role: "user" as const, content: "Part 1" },
         { role: "user" as const, content: "Part 2" },
         { role: "assistant" as const, content: "Response" },
       ];
-      const result = router.transformMessagesForProvider(messages, "openai");
+      const result = router.transformMessagesForProvider(messages, "github");
       expect(result.length).toBe(2); // merged user + assistant
       expect(result[0].content).toContain("Part 1");
       expect(result[0].content).toContain("Part 2");
@@ -564,7 +540,7 @@ describe("InferenceBudgetTracker", () => {
         sessionId: "test",
         turnId: null,
         model: "gpt-4.1",
-        provider: "openai",
+        provider: "conway",
         inputTokens: 1000,
         outputTokens: 500,
         costCents: 15,
@@ -595,7 +571,7 @@ describe("InferenceBudgetTracker", () => {
       sessionId: "session-1",
       turnId: "turn-1",
       model: "gpt-4.1",
-      provider: "openai",
+      provider: "conway",
       inputTokens: 1000,
       outputTokens: 500,
       costCents: 5,
@@ -615,12 +591,12 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 10,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     tracker.recordCost({
-      sessionId: "s2", turnId: null, model: "gpt-4.1-mini", provider: "openai",
+      sessionId: "s2", turnId: null, model: "gpt-4.1-mini", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 100, tier: "low_compute", taskType: "heartbeat_triage", cacheHit: false,
     });
@@ -633,7 +609,7 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 7,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -646,12 +622,12 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 3,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     tracker.recordCost({
-      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 200, outputTokens: 100, costCents: 6,
       latencyMs: 200, tier: "normal", taskType: "planning", cacheHit: false,
     });
@@ -664,12 +640,12 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 200, outputTokens: 100, costCents: 10,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -762,7 +738,7 @@ describe("Static Model Baseline", () => {
   });
 
   it("all models have valid provider", () => {
-    const validProviders = ["openai", "anthropic", "conway", "other"];
+    const validProviders = ["conway", "ollama", "github", "other"];
     for (const model of STATIC_MODEL_BASELINE) {
       expect(validProviders).toContain(model.provider);
     }
@@ -816,7 +792,7 @@ describe("Inference DB Helpers", () => {
       sessionId: "s1",
       turnId: null,
       model: "gpt-4.1",
-      provider: "openai",
+      provider: "conway",
       inputTokens: 100,
       outputTokens: 50,
       costCents: 5,
@@ -831,12 +807,12 @@ describe("Inference DB Helpers", () => {
 
   it("inferenceGetSessionCosts returns costs for session", () => {
     inferenceInsertCost(db, {
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     inferenceInsertCost(db, {
-      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 3,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -855,7 +831,7 @@ describe("Inference DB Helpers", () => {
 
     // Insert a fresh record (uses datetime('now') default)
     inferenceInsertCost(db, {
-      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "openai",
+      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "conway",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -889,7 +865,7 @@ describe("Inference DB Helpers", () => {
     const now = new Date().toISOString();
     modelRegistryUpsert(db, {
       modelId: "test-model",
-      provider: "openai",
+      provider: "conway",
       displayName: "Test",
       tierMinimum: "normal",
       costPer1kInput: 10,
@@ -914,14 +890,14 @@ describe("Inference DB Helpers", () => {
   it("modelRegistryGetAll returns all entries", () => {
     const now = new Date().toISOString();
     modelRegistryUpsert(db, {
-      modelId: "m1", provider: "openai", displayName: "M1",
+      modelId: "m1", provider: "conway", displayName: "M1",
       tierMinimum: "normal", costPer1kInput: 10, costPer1kOutput: 20,
       maxTokens: 4096, contextWindow: 128000, supportsTools: true,
       supportsVision: false, parameterStyle: "max_tokens", enabled: true,
       createdAt: now, updatedAt: now,
     });
     modelRegistryUpsert(db, {
-      modelId: "m2", provider: "anthropic", displayName: "M2",
+      modelId: "m2", provider: "github", displayName: "M2",
       tierMinimum: "low_compute", costPer1kInput: 5, costPer1kOutput: 10,
       maxTokens: 4096, contextWindow: 200000, supportsTools: true,
       supportsVision: true, parameterStyle: "max_tokens", enabled: true,
@@ -935,7 +911,7 @@ describe("Inference DB Helpers", () => {
   it("modelRegistrySetEnabled toggles enabled flag", () => {
     const now = new Date().toISOString();
     modelRegistryUpsert(db, {
-      modelId: "m1", provider: "openai", displayName: "M1",
+      modelId: "m1", provider: "conway", displayName: "M1",
       tierMinimum: "normal", costPer1kInput: 10, costPer1kOutput: 20,
       maxTokens: 4096, contextWindow: 128000, supportsTools: true,
       supportsVision: false, parameterStyle: "max_tokens", enabled: true,

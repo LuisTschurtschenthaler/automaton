@@ -123,8 +123,7 @@ export function createConfig(params: {
   sandboxId: string;
   walletAddress: string;
   apiKey: string;
-  openaiApiKey?: string;
-  anthropicApiKey?: string;
+  githubToken?: string;
   ollamaBaseUrl?: string;
   parentAddress?: string;
   treasuryPolicy?: TreasuryPolicy;
@@ -141,8 +140,7 @@ export function createConfig(params: {
     conwayApiUrl:
       DEFAULT_CONFIG.conwayApiUrl || "https://api.conway.tech",
     conwayApiKey: params.apiKey,
-    openaiApiKey: params.openaiApiKey,
-    anthropicApiKey: params.anthropicApiKey,
+    githubToken: params.githubToken,
     ollamaBaseUrl: params.ollamaBaseUrl,
     inferenceModel: DEFAULT_CONFIG.inferenceModel || "gpt-5.2",
     maxTokensPerTurn: DEFAULT_CONFIG.maxTokensPerTurn || 4096,

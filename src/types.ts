@@ -49,8 +49,7 @@ export interface AutomatonConfig {
   sandboxId: string;
   conwayApiUrl: string;
   conwayApiKey: string;
-  openaiApiKey?: string;
-  anthropicApiKey?: string;
+  githubToken?: string;
   ollamaBaseUrl?: string;
   inferenceModel: string;
   maxTokensPerTurn: number;
@@ -1140,7 +1139,7 @@ export const DEFAULT_MEMORY_BUDGET: MemoryBudget = {
 
 // === Phase 2.3: Inference & Model Strategy Types ===
 
-export type ModelProvider = "openai" | "anthropic" | "conway" | "ollama" | "other";
+export type ModelProvider = "conway" | "ollama" | "github" | "other";
 
 export type InferenceTaskType =
   | "agent_turn"
@@ -1239,7 +1238,6 @@ export interface ModelStrategyConfig {
   sessionBudgetCents: number; // default: 0 (no limit)
   perCallCeilingCents: number; // default: 0 (no limit)
   enableModelFallback: boolean; // default: true
-  anthropicApiVersion: string; // default: "2023-06-01"
 }
 
 export const DEFAULT_MODEL_STRATEGY_CONFIG: ModelStrategyConfig = {
@@ -1251,7 +1249,6 @@ export const DEFAULT_MODEL_STRATEGY_CONFIG: ModelStrategyConfig = {
   sessionBudgetCents: 0,
   perCallCeilingCents: 0,
   enableModelFallback: true,
-  anthropicApiVersion: "2023-06-01",
 };
 
 // === Phase 3.1: Replication & Lifecycle Types ===

@@ -124,20 +124,11 @@ export async function runAgentLoop(
   // Bridge automaton config API keys to env vars BEFORE registry/router
   // initialization. The router's isProviderAvailable() checks process.env,
   // and createInferenceClient's resolveInferenceBackend also uses them.
-  if (config.anthropicApiKey && !process.env.ANTHROPIC_API_KEY) {
-    process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
-  }
-  if (config.openaiApiKey && !process.env.OPENAI_API_KEY) {
-    process.env.OPENAI_API_KEY = config.openaiApiKey;
+  if (config.githubToken && !process.env.GITHUB_TOKEN) {
+    process.env.GITHUB_TOKEN = config.githubToken;
   }
   if (config.conwayApiKey && !process.env.CONWAY_API_KEY) {
     process.env.CONWAY_API_KEY = config.conwayApiKey;
-  }
-  // If no OpenAI key is set but Conway key is available, use Conway as
-  // the OpenAI provider (Conway Compute is OpenAI API-compatible).
-  if (!process.env.OPENAI_API_KEY && config.conwayApiKey) {
-    process.env.OPENAI_API_KEY = config.conwayApiKey;
-    process.env.OPENAI_BASE_URL = `${config.conwayApiUrl}/v1`;
   }
 
   const modelRegistry = new ModelRegistry(db.raw);
@@ -159,9 +150,8 @@ export async function runAgentLoop(
       { label: "criticalModel", id: modelStrategyConfig.criticalModel },
     ];
     const availableProviders: string[] = [];
-    if (process.env.ANTHROPIC_API_KEY) availableProviders.push("anthropic");
-    if (process.env.OPENAI_API_KEY) availableProviders.push("openai");
     if (process.env.CONWAY_API_KEY) availableProviders.push("conway");
+    if (process.env.GITHUB_TOKEN) availableProviders.push("github");
     if (ollamaBaseUrl) availableProviders.push("ollama");
     logger.info(`Available inference providers: ${availableProviders.join(", ") || "none"}`);
 
@@ -174,9 +164,8 @@ export async function runAgentLoop(
         logger.warn(`${label} "${id}" is disabled in registry`);
       } else {
         const providerEnvVars: Record<string, string> = {
-          openai: "OPENAI_API_KEY",
-          anthropic: "ANTHROPIC_API_KEY",
           conway: "CONWAY_API_KEY",
+          github: "GITHUB_TOKEN",
         };
         const envVar = providerEnvVars[entry.provider];
         const hasKey = !envVar || (process.env[envVar] && process.env[envVar]!.length > 0);
@@ -205,12 +194,6 @@ export async function runAgentLoop(
         "inference-providers.json",
       );
       const registry = ProviderRegistry.fromConfig(providersPath);
-
-      // If OPENAI_BASE_URL was set (Conway fallback), update the default
-      // provider's baseUrl so the OpenAI client points to Conway Compute.
-      if (process.env.OPENAI_BASE_URL) {
-        registry.overrideBaseUrl("openai", process.env.OPENAI_BASE_URL);
-      }
 
       const unifiedInference = new UnifiedInferenceClient(registry);
       const agentTracker = new SimpleAgentTracker(db);

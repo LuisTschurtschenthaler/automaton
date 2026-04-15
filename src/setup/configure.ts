@@ -99,9 +99,9 @@ async function askChoice<T extends string>(
 // ─── Model picker ─────────────────────────────────────────────────
 
 const PROVIDER_LABEL: Record<string, string> = {
-  openai: "OpenAI",
-  anthropic: "Anthropic",
   conway: "Conway",
+  github: "GitHub Copilot",
+  groq: "Groq",
   ollama: "Ollama",
   other: "Other",
 };
@@ -171,8 +171,7 @@ function val(v: string | number | boolean | undefined): string {
 
 function printMainMenu(config: AutomatonConfig): void {
   const providers = [
-    config.openaiApiKey ? "OpenAI" : null,
-    config.anthropicApiKey ? "Anthropic" : null,
+    config.githubToken ? "GitHub" : null,
     config.ollamaBaseUrl ? "Ollama" : null,
     "Conway",
   ].filter(Boolean).join(", ");
@@ -203,8 +202,7 @@ async function configureProviders(config: AutomatonConfig): Promise<void> {
     config.conwayApiKey,
   );
 
-  config.openaiApiKey = await askString("OpenAI API key  (sk-...)", config.openaiApiKey) || undefined;
-  config.anthropicApiKey = await askString("Anthropic API key  (sk-ant-...)", config.anthropicApiKey) || undefined;
+  config.githubToken = await askString("GitHub token  (ghp_...)", config.githubToken) || undefined;
   config.ollamaBaseUrl = await askString("Ollama base URL  (http://localhost:11434)", config.ollamaBaseUrl) || undefined;
 
   console.log("");

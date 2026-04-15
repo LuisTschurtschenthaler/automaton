@@ -97,14 +97,10 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   console.log(chalk.green(`  Creator: ${creatorAddress}\n`));
 
   console.log(chalk.white("  Optional: bring your own inference provider keys (press Enter to skip)."));
-  const openaiApiKey = await promptOptional("OpenAI API key (sk-..., optional)");
-  if (openaiApiKey && !openaiApiKey.startsWith("sk-")) {
-    console.log(chalk.yellow("  Warning: OpenAI keys usually start with sk-. Saving anyway."));
-  }
 
-  const anthropicApiKey = await promptOptional("Anthropic API key (sk-ant-..., optional)");
-  if (anthropicApiKey && !anthropicApiKey.startsWith("sk-ant-")) {
-    console.log(chalk.yellow("  Warning: Anthropic keys usually start with sk-ant-. Saving anyway."));
+  const githubToken = await promptOptional("GitHub token (ghp_..., optional)");
+  if (githubToken && !githubToken.startsWith("ghp_") && !githubToken.startsWith("github_pat_")) {
+    console.log(chalk.yellow("  Warning: GitHub tokens usually start with ghp_ or github_pat_. Saving anyway."));
   }
 
   const ollamaInput = await promptOptional("Ollama base URL (http://localhost:11434, optional)");
@@ -113,10 +109,9 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     console.log(chalk.green(`  Ollama URL saved: ${ollamaBaseUrl}`));
   }
 
-  if (openaiApiKey || anthropicApiKey || ollamaBaseUrl) {
+  if (githubToken || ollamaBaseUrl) {
     const providers = [
-      openaiApiKey ? "OpenAI" : null,
-      anthropicApiKey ? "Anthropic" : null,
+      githubToken ? "GitHub" : null,
       ollamaBaseUrl ? "Ollama" : null,
     ].filter(Boolean).join(", ");
     console.log(chalk.green(`  Provider keys/URLs saved: ${providers}\n`));
@@ -170,8 +165,7 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     sandboxId: env.sandboxId,
     walletAddress,
     apiKey,
-    openaiApiKey: openaiApiKey || undefined,
-    anthropicApiKey: anthropicApiKey || undefined,
+    githubToken: githubToken || undefined,
     ollamaBaseUrl,
     treasuryPolicy,
     chainType: walletChainType,

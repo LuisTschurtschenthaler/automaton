@@ -201,8 +201,8 @@ export class MockConwayClient implements ConwayClient {
 
   async listModels(): Promise<ModelInfo[]> {
     return [
-      { id: "gpt-4.1-nano", provider: "openai", pricing: { inputPerMillion: 0.10, outputPerMillion: 0.40 } },
-      { id: "gpt-4.1", provider: "openai", pricing: { inputPerMillion: 2.00, outputPerMillion: 8.00 } },
+      { id: "gpt-4.1-nano", provider: "conway", pricing: { inputPerMillion: 0.10, outputPerMillion: 0.40 } },
+      { id: "gpt-4.1", provider: "conway", pricing: { inputPerMillion: 2.00, outputPerMillion: 8.00 } },
     ];
   }
 

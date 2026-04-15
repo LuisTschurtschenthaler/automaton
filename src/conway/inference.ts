@@ -12,7 +12,6 @@ import type {
   InferenceResponse,
   InferenceToolCall,
   TokenUsage,
-  InferenceToolDefinition,
 } from "../types.js";
 import { ResilientHttpClient } from "./http-client.js";
 
@@ -20,8 +19,6 @@ const INFERENCE_TIMEOUT_MS = 60_000;
 
 // Pre-compiled regex constants for model detection (hoisted from hot paths)
 const RE_COMPLETION_TOKENS_MODEL = /^(o[1-9]|gpt-5|gpt-4\.1)/;
-const RE_ANTHROPIC_MODEL = /^claude/i;
-const RE_OPENAI_MODEL = /^(gpt-[3-9]|gpt-4|gpt-5|o[1-9][-\s.]|o[1-9]$|chatgpt)/i;
 
 interface InferenceClientOptions {
   apiUrl: string;
@@ -29,19 +26,18 @@ interface InferenceClientOptions {
   defaultModel: string;
   maxTokens: number;
   lowComputeModel?: string;
-  openaiApiKey?: string;
-  anthropicApiKey?: string;
+  githubToken?: string;
   ollamaBaseUrl?: string;
   /** Optional registry lookup — if provided, used before name heuristics */
   getModelProvider?: (modelId: string) => string | undefined;
 }
 
-type InferenceBackend = "conway" | "openai" | "anthropic" | "ollama";
+type InferenceBackend = "conway" | "ollama" | "github";
 
 export function createInferenceClient(
   options: InferenceClientOptions,
 ): InferenceClient {
-  const { apiUrl, apiKey, openaiApiKey, anthropicApiKey, ollamaBaseUrl, getModelProvider } = options;
+  const { apiUrl, apiKey, githubToken, ollamaBaseUrl, getModelProvider } = options;
   const httpClient = new ResilientHttpClient({
     baseTimeout: INFERENCE_TIMEOUT_MS,
     retryableStatuses: [429, 500, 502, 503, 504],
@@ -57,8 +53,7 @@ export function createInferenceClient(
     const tools = opts?.tools;
 
     const backend = resolveInferenceBackend(model, {
-      openaiApiKey,
-      anthropicApiKey,
+      githubToken,
       ollamaBaseUrl,
       getModelProvider,
     });
@@ -90,24 +85,12 @@ export function createInferenceClient(
       body.tool_choice = "auto";
     }
 
-    if (backend === "anthropic") {
-      return chatViaAnthropic({
-        model,
-        tokenLimit,
-        messages,
-        tools,
-        temperature: opts?.temperature,
-        anthropicApiKey: anthropicApiKey as string,
-        httpClient,
-      });
-    }
-
     const openAiLikeApiUrl =
-      backend === "openai" ? "https://api.openai.com" :
+      backend === "github" ? "https://models.inference.ai.azure.com" :
       backend === "ollama" ? (ollamaBaseUrl as string).replace(/\/$/, "") :
       apiUrl;
     const openAiLikeApiKey =
-      backend === "openai" ? (openaiApiKey as string) :
+      backend === "github" ? (githubToken as string) :
       backend === "ollama" ? "ollama" :
       apiKey;
 
@@ -169,8 +152,7 @@ function formatMessage(
 function resolveInferenceBackend(
   model: string,
   keys: {
-    openaiApiKey?: string;
-    anthropicApiKey?: string;
+    githubToken?: string;
     ollamaBaseUrl?: string;
     getModelProvider?: (modelId: string) => string | undefined;
   },
@@ -179,17 +161,12 @@ function resolveInferenceBackend(
   if (keys.getModelProvider) {
     const provider = keys.getModelProvider(model);
     if (provider === "ollama" && keys.ollamaBaseUrl) return "ollama";
-    if (provider === "anthropic" && keys.anthropicApiKey) return "anthropic";
-    if (provider === "openai" && keys.openaiApiKey) return "openai";
+    if (provider === "github" && keys.githubToken) return "github";
     if (provider === "conway") return "conway";
-    // provider unknown or key not configured — fall through to heuristics
+    // provider unknown or key not configured — fall through to default
   }
 
-  // Heuristic fallback (model not in registry yet)
-  if (keys.anthropicApiKey && RE_ANTHROPIC_MODEL.test(model)) return "anthropic";
-  if (keys.openaiApiKey && RE_OPENAI_MODEL.test(model)) return "openai";
   return "conway";
-
 }
 
 async function chatViaOpenAiCompatible(params: {
@@ -197,7 +174,7 @@ async function chatViaOpenAiCompatible(params: {
   body: Record<string, unknown>;
   apiUrl: string;
   apiKey: string;
-  backend: "conway" | "openai" | "ollama";
+  backend: "conway" | "ollama" | "github";
   httpClient: ResilientHttpClient;
 }): Promise<InferenceResponse> {
   const resp = await params.httpClient.request(`${params.apiUrl}/v1/chat/completions`, {
@@ -205,7 +182,7 @@ async function chatViaOpenAiCompatible(params: {
     headers: {
       "Content-Type": "application/json",
       Authorization:
-        params.backend === "openai" || params.backend === "ollama"
+        params.backend === "ollama" || params.backend === "github"
           ? `Bearer ${params.apiKey}`
           : params.apiKey,
     },
@@ -256,262 +233,4 @@ async function chatViaOpenAiCompatible(params: {
     usage,
     finishReason: choice.finish_reason || "stop",
   };
-}
-
-async function chatViaAnthropic(params: {
-  model: string;
-  tokenLimit: number;
-  messages: ChatMessage[];
-  tools?: InferenceToolDefinition[];
-  temperature?: number;
-  anthropicApiKey: string;
-  httpClient: ResilientHttpClient;
-}): Promise<InferenceResponse> {
-  const transformed = transformMessagesForAnthropic(params.messages);
-  const body: Record<string, unknown> = {
-    model: params.model,
-    max_tokens: params.tokenLimit,
-    messages:
-      transformed.messages.length > 0
-        ? transformed.messages
-        : (() => { throw new Error("Cannot send empty message array to Anthropic API"); })(),
-  };
-
-  if (transformed.system) {
-    body.system = transformed.system;
-  }
-
-  if (params.temperature !== undefined) {
-    body.temperature = params.temperature;
-  }
-
-  if (params.tools && params.tools.length > 0) {
-    body.tools = params.tools.map((tool) => ({
-      name: tool.function.name,
-      description: tool.function.description,
-      input_schema: tool.function.parameters,
-    }));
-    body.tool_choice = { type: "auto" };
-  }
-
-  const resp = await params.httpClient.request("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": params.anthropicApiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-    timeout: INFERENCE_TIMEOUT_MS,
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Inference error (anthropic): ${resp.status}: ${text}`);
-  }
-
-  const data = await resp.json() as any;
-  const content = Array.isArray(data.content) ? data.content : [];
-  const textBlocks = content.filter((c: any) => c?.type === "text");
-  const toolUseBlocks = content.filter((c: any) => c?.type === "tool_use");
-
-  const toolCalls: InferenceToolCall[] | undefined =
-    toolUseBlocks.length > 0
-      ? toolUseBlocks.map((tool: any) => ({
-          id: tool.id,
-          type: "function" as const,
-          function: {
-            name: tool.name,
-            arguments: JSON.stringify(tool.input || {}),
-          },
-        }))
-      : undefined;
-
-  const textContent = textBlocks
-    .map((block: any) => String(block.text || ""))
-    .join("\n")
-    .trim();
-
-  if (!textContent && !toolCalls?.length) {
-    throw new Error("No completion content returned from anthropic inference");
-  }
-
-  const promptTokens = data.usage?.input_tokens || 0;
-  const completionTokens = data.usage?.output_tokens || 0;
-  const usage: TokenUsage = {
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens,
-  };
-
-  return {
-    id: data.id || "",
-    model: data.model || params.model,
-    message: {
-      role: "assistant",
-      content: textContent,
-      tool_calls: toolCalls,
-    },
-    toolCalls,
-    usage,
-    finishReason: normalizeAnthropicFinishReason(data.stop_reason),
-  };
-}
-
-function transformMessagesForAnthropic(
-  messages: ChatMessage[],
-): { system?: string; messages: Array<Record<string, unknown>> } {
-  const systemParts: string[] = [];
-  const transformed: Array<Record<string, unknown>> = [];
-
-  for (const msg of messages) {
-    if (msg.role === "system") {
-      if (msg.content) systemParts.push(msg.content);
-      continue;
-    }
-
-    if (msg.role === "user") {
-      // Merge consecutive user messages
-      const last = transformed[transformed.length - 1];
-      if (last && last.role === "user" && typeof last.content === "string") {
-        last.content = last.content + "\n" + msg.content;
-        continue;
-      }
-      transformed.push({
-        role: "user",
-        content: msg.content,
-      });
-      continue;
-    }
-
-    if (msg.role === "assistant") {
-      const content: Array<Record<string, unknown>> = [];
-      if (msg.content) {
-        content.push({ type: "text", text: msg.content });
-      }
-      for (const toolCall of msg.tool_calls || []) {
-        content.push({
-          type: "tool_use",
-          id: toolCall.id,
-          name: toolCall.function.name,
-          input: parseToolArguments(toolCall.function.arguments),
-        });
-      }
-      if (content.length === 0) {
-        content.push({ type: "text", text: "" });
-      }
-      // Merge consecutive assistant messages
-      const last = transformed[transformed.length - 1];
-      if (last && last.role === "assistant" && Array.isArray(last.content)) {
-        (last.content as Array<Record<string, unknown>>).push(...content);
-        continue;
-      }
-      transformed.push({
-        role: "assistant",
-        content,
-      });
-      continue;
-    }
-
-    if (msg.role === "tool") {
-      // Merge consecutive tool messages into a single user message
-      // with multiple tool_result content blocks
-      const toolResultBlock = {
-        type: "tool_result",
-        tool_use_id: msg.tool_call_id || "unknown_tool_call",
-        content: msg.content,
-      };
-
-      const last = transformed[transformed.length - 1];
-      if (last && last.role === "user" && Array.isArray(last.content)) {
-        // Append tool_result to existing user message with content blocks
-        (last.content as Array<Record<string, unknown>>).push(toolResultBlock);
-        continue;
-      }
-
-      transformed.push({
-        role: "user",
-        content: [toolResultBlock],
-      });
-    }
-  }
-
-  // Safety: ensure every tool_use has a matching tool_result.
-  // If a tool_result is missing (e.g. turn was persisted mid-execution),
-  // inject a synthetic one to prevent Anthropic API errors.
-  const toolUseIds = new Set<string>();
-  const toolResultIds = new Set<string>();
-  for (const msg of transformed) {
-    if (Array.isArray(msg.content)) {
-      for (const block of msg.content as Array<Record<string, unknown>>) {
-        if (block.type === "tool_use" && typeof block.id === "string") {
-          toolUseIds.add(block.id);
-        }
-        if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
-          toolResultIds.add(block.tool_use_id);
-        }
-      }
-    }
-  }
-  const missingResults = [...toolUseIds].filter((id) => !toolResultIds.has(id));
-  if (missingResults.length > 0) {
-    // Find the message with the orphaned tool_use and inject results after it
-    for (let i = 0; i < transformed.length; i++) {
-      const msg = transformed[i];
-      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-      const orphanedInThisMsg = (msg.content as Array<Record<string, unknown>>)
-        .filter((b) => b.type === "tool_use" && missingResults.includes(b.id as string));
-      if (orphanedInThisMsg.length === 0) continue;
-
-      const syntheticResults = orphanedInThisMsg.map((b) => ({
-        type: "tool_result" as const,
-        tool_use_id: b.id as string,
-        content: "[Error: tool execution was interrupted]",
-      }));
-
-      // Insert a user message with tool_results right after this assistant message
-      const nextMsg = transformed[i + 1];
-      if (nextMsg && nextMsg.role === "user" && Array.isArray(nextMsg.content)) {
-        (nextMsg.content as Array<Record<string, unknown>>).push(...syntheticResults);
-      } else {
-        transformed.splice(i + 1, 0, {
-          role: "user",
-          content: syntheticResults,
-        });
-      }
-    }
-  }
-
-  // Safety: Anthropic requires the conversation to end with a user message.
-  // Models like claude-opus-4-6 do not support assistant message prefill.
-  if (transformed.length > 0 && transformed[transformed.length - 1].role === "assistant") {
-    transformed.push({
-      role: "user",
-      content: "[system] Continue. What is your next action?",
-    });
-  }
-
-  return {
-    system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
-    messages: transformed,
-  };
-}
-
-function parseToolArguments(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return { value: parsed };
-  } catch {
-    return { _raw: raw };
-  }
-}
-
-function normalizeAnthropicFinishReason(reason: unknown): string {
-  if (typeof reason !== "string") return "stop";
-  if (reason === "tool_use") return "tool_calls";
-  if (reason === "end_turn") return "stop";
-  return reason;
 }

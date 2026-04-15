@@ -122,8 +122,8 @@ describe("UnifiedInferenceClient", () => {
     });
 
     expect(result.content).toBe("reasoning-response");
-    expect(result.metadata.providerId).toBe("openai");
-    expect(result.metadata.modelId).toBe("gpt-4.1");
+    expect(result.metadata.providerId).toBe("github");
+    expect(result.metadata.modelId).toBe("gpt-4o");
     expect(result.metadata.tier).toBe("reasoning");
   });
 
@@ -178,12 +178,12 @@ describe("UnifiedInferenceClient", () => {
     async (status) => {
       const client = createClient();
 
-      // openai gets 4 failures (3 retries + final failure), then anthropic succeeds
+      // github gets 4 failures (3 retries + final failure), then groq succeeds
       queueError(status);
       queueError(status);
       queueError(status);
       queueError(status);
-      queueCompletion({ content: `from-anthropic-${status}` });
+      queueCompletion({ content: `from-groq-${status}` });
 
       vi.useFakeTimers();
       const pending = client.chat({ tier: "reasoning", messages: BASE_MESSAGES });
@@ -191,9 +191,9 @@ describe("UnifiedInferenceClient", () => {
       const result = await pending;
       vi.useRealTimers();
 
-      expect(result.content).toBe(`from-anthropic-${status}`);
-      expect(result.metadata.providerId).toBe("anthropic");
-      expect(result.metadata.failedProviders).toEqual(["openai"]);
+      expect(result.content).toBe(`from-groq-${status}`);
+      expect(result.metadata.providerId).toBe("groq");
+      expect(result.metadata.failedProviders).toEqual(["github"]);
       expect(result.metadata.retries).toBe(3);
     },
   );
@@ -277,8 +277,8 @@ describe("UnifiedInferenceClient", () => {
       queueError(400, `hard-fail-${i}`);
       await expect(
         client.chatDirect({
-          providerId: "openai",
-          modelId: "gpt-4.1",
+          providerId: "github",
+          modelId: "gpt-4o",
           messages: BASE_MESSAGES,
         }),
       ).rejects.toThrow(`hard-fail-${i}`);
@@ -288,8 +288,8 @@ describe("UnifiedInferenceClient", () => {
 
     await expect(
       client.chatDirect({
-        providerId: "openai",
-        modelId: "gpt-4.1",
+        providerId: "github",
+        modelId: "gpt-4o",
         messages: BASE_MESSAGES,
       }),
     ).rejects.toThrow(/circuit is open/);
@@ -304,8 +304,8 @@ describe("UnifiedInferenceClient", () => {
       queueError(400, `trip-${i}`);
       await expect(
         client.chatDirect({
-          providerId: "openai",
-          modelId: "gpt-4.1",
+          providerId: "github",
+          modelId: "gpt-4o",
           messages: BASE_MESSAGES,
         }),
       ).rejects.toThrow();
@@ -314,7 +314,7 @@ describe("UnifiedInferenceClient", () => {
     queueCompletion({ content: "from-fallback" });
 
     const result = await client.chat({ tier: "reasoning", messages: BASE_MESSAGES });
-    expect(result.metadata.providerId).toBe("anthropic");
+    expect(result.metadata.providerId).toBe("groq");
     expect(result.metadata.failedProviders).toEqual([]);
   });
 
@@ -323,24 +323,24 @@ describe("UnifiedInferenceClient", () => {
 
     queueError(400, "first-fail");
     await expect(
-      client.chatDirect({ providerId: "openai", modelId: "gpt-4.1", messages: BASE_MESSAGES }),
+      client.chatDirect({ providerId: "github", modelId: "gpt-4o", messages: BASE_MESSAGES }),
     ).rejects.toThrow("first-fail");
 
     queueCompletion({ content: "recovered" });
     await expect(
-      client.chatDirect({ providerId: "openai", modelId: "gpt-4.1", messages: BASE_MESSAGES }),
+      client.chatDirect({ providerId: "github", modelId: "gpt-4o", messages: BASE_MESSAGES }),
     ).resolves.toMatchObject({ content: "recovered" });
 
     for (let i = 0; i < 4; i += 1) {
       queueError(400, `again-${i}`);
       await expect(
-        client.chatDirect({ providerId: "openai", modelId: "gpt-4.1", messages: BASE_MESSAGES }),
+        client.chatDirect({ providerId: "github", modelId: "gpt-4o", messages: BASE_MESSAGES }),
       ).rejects.toThrow(`again-${i}`);
     }
 
     queueCompletion({ content: "still-open" });
     await expect(
-      client.chatDirect({ providerId: "openai", modelId: "gpt-4.1", messages: BASE_MESSAGES }),
+      client.chatDirect({ providerId: "github", modelId: "gpt-4o", messages: BASE_MESSAGES }),
     ).resolves.toMatchObject({ content: "still-open" });
   });
 
@@ -352,13 +352,13 @@ describe("UnifiedInferenceClient", () => {
     queueCompletion({ content: "direct" });
 
     const result = await client.chatDirect({
-      providerId: "openai",
-      modelId: "gpt-4.1-mini",
+      providerId: "github",
+      modelId: "gpt-4o-mini",
       messages: BASE_MESSAGES,
     });
 
-    expect(result.metadata.providerId).toBe("openai");
-    expect(result.metadata.modelId).toBe("gpt-4.1-mini");
+    expect(result.metadata.providerId).toBe("github");
+    expect(result.metadata.modelId).toBe("gpt-4o-mini");
     expect(resolveSpy).not.toHaveBeenCalled();
   });
 
@@ -368,12 +368,12 @@ describe("UnifiedInferenceClient", () => {
     for (let i = 0; i < 5; i += 1) {
       queueError(400, "trip-circuit");
       await expect(
-        client.chatDirect({ providerId: "openai", modelId: "gpt-4.1", messages: BASE_MESSAGES }),
+        client.chatDirect({ providerId: "github", modelId: "gpt-4o", messages: BASE_MESSAGES }),
       ).rejects.toThrow("trip-circuit");
     }
 
     await expect(
-      client.chatDirect({ providerId: "openai", modelId: "gpt-4.1", messages: BASE_MESSAGES }),
+      client.chatDirect({ providerId: "github", modelId: "gpt-4o", messages: BASE_MESSAGES }),
     ).rejects.toThrow(/circuit is open/);
   });
 
@@ -385,8 +385,8 @@ describe("UnifiedInferenceClient", () => {
 
     vi.useFakeTimers();
     const pending = client.chatDirect({
-      providerId: "openai",
-      modelId: "gpt-4.1",
+      providerId: "github",
+      modelId: "gpt-4o",
       messages: BASE_MESSAGES,
     });
     await vi.runAllTimersAsync();
@@ -408,9 +408,9 @@ describe("UnifiedInferenceClient", () => {
 
     const result = await client.chat({ tier: "reasoning", messages: BASE_MESSAGES });
     expect(result.usage).toEqual({ inputTokens: 2000, outputTokens: 500, totalTokens: 2500 });
-    expect(result.cost.inputCostCredits).toBeCloseTo(4); // 2k * 2.0 / 1k
-    expect(result.cost.outputCostCredits).toBeCloseTo(4); // 0.5k * 8.0 / 1k
-    expect(result.cost.totalCostCredits).toBeCloseTo(8);
+    expect(result.cost.inputCostCredits).toBeCloseTo(5); // 2k * 2.5 / 1k
+    expect(result.cost.outputCostCredits).toBeCloseTo(5); // 0.5k * 10.0 / 1k
+    expect(result.cost.totalCostCredits).toBeCloseTo(10);
   });
 
   it("extracts text content from structured content arrays", async () => {

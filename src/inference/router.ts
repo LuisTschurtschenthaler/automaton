@@ -26,10 +26,9 @@ type Database = BetterSqlite3.Database;
 
 /** Map provider names to the env var that holds their API key. */
 const PROVIDER_KEY_ENV: Record<string, string> = {
-  openai: "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
   ollama: "", // always available when configured
   conway: "CONWAY_API_KEY",
+  github: "GITHUB_TOKEN",
 };
 
 /**
@@ -263,76 +262,14 @@ export class InferenceRouter {
 
   /**
    * Transform messages for a specific provider.
-   * Handles Anthropic's alternating-role requirement.
+   * Merges consecutive same-role messages.
    */
   transformMessagesForProvider(messages: ChatMessage[], provider: ModelProvider): ChatMessage[] {
     if (messages.length === 0) {
       throw new Error("Cannot route inference with empty message array");
     }
 
-    if (provider === "anthropic") {
-      return this.fixAnthropicMessages(messages);
-    }
-
-    // For OpenAI/Conway, merge consecutive same-role messages
     return this.mergeConsecutiveSameRole(messages);
-  }
-
-  /**
-   * Fix messages for Anthropic's API requirements:
-   * 1. Extract system messages
-   * 2. Merge consecutive same-role messages
-   * 3. Merge consecutive tool messages into a single user message
-   *    with multiple tool_result content blocks
-   */
-  private fixAnthropicMessages(messages: ChatMessage[]): ChatMessage[] {
-    const result: ChatMessage[] = [];
-
-    for (const msg of messages) {
-      // System messages are handled separately by the Anthropic client
-      if (msg.role === "system") {
-        result.push(msg);
-        continue;
-      }
-
-      // Tool messages become user messages with tool_result content
-      if (msg.role === "tool") {
-        const last = result[result.length - 1];
-        // If previous message was also a tool (now a user), merge into it
-        if (last && last.role === "user" && (last as any)._toolResultMerged) {
-          // Append to the merged content
-          last.content = last.content + "\n[tool_result:" + (msg.tool_call_id || "unknown") + "] " + msg.content;
-          continue;
-        }
-        // Otherwise create a new user message
-        const userMsg: ChatMessage & { _toolResultMerged?: boolean } = {
-          role: "user",
-          content: "[tool_result:" + (msg.tool_call_id || "unknown") + "] " + msg.content,
-          _toolResultMerged: true,
-        };
-        result.push(userMsg);
-        continue;
-      }
-
-      // For user/assistant: merge with previous if same role
-      const last = result[result.length - 1];
-      if (last && last.role === msg.role) {
-        last.content = (last.content || "") + "\n" + (msg.content || "");
-        if (msg.tool_calls) {
-          last.tool_calls = [...(last.tool_calls || []), ...msg.tool_calls];
-        }
-        continue;
-      }
-
-      result.push({ ...msg });
-    }
-
-    // Clean up internal markers
-    for (const msg of result) {
-      delete (msg as any)._toolResultMerged;
-    }
-
-    return result;
   }
 
   /**
