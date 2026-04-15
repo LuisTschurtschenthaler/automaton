@@ -196,7 +196,13 @@ export class LocalWorkerPool {
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         logger.error(`[WORKER ${workerId}] Inference failed on turn ${turn + 1}`, error instanceof Error ? error : new Error(msg));
-        failTask(this.config.db, task.id, `Inference failed: ${msg}`, true);
+        // Permanent failures (quota exhausted, auth errors) should not be retried —
+        // retrying just creates an infinite recover-reassign loop in the orchestrator.
+        const isNonRetryable = msg.includes("insufficient_quota")
+          || msg.includes("exceeded your current quota")
+          || msg.includes("invalid_api_key")
+          || msg.includes("authentication");
+        failTask(this.config.db, task.id, `Inference failed: ${msg}`, !isNonRetryable);
         return;
       }
 

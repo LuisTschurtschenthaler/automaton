@@ -412,7 +412,14 @@ export class UnifiedInferenceClient {
 
   private isRetryableError(error: unknown): boolean {
     const status = getStatusCode(error);
-    return status !== undefined && RETRYABLE_STATUS_CODES.has(status);
+    if (status === undefined || !RETRYABLE_STATUS_CODES.has(status)) {
+      return false;
+    }
+    // 429 with insufficient_quota is permanent — retrying won't help.
+    if (status === 429 && isQuotaExhausted(error)) {
+      return false;
+    }
+    return true;
   }
 
   private isProviderCircuitOpen(providerId: string): boolean {
@@ -554,6 +561,17 @@ function getStatusCode(error: unknown): number | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * Detect permanent quota exhaustion (as opposed to transient rate limits).
+ * OpenAI returns 429 for both, but `insufficient_quota` means billing action
+ * is required — retrying is pointless.
+ */
+function isQuotaExhausted(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const msg = (error as { message?: string }).message ?? "";
+  return msg.includes("insufficient_quota") || msg.includes("exceeded your current quota");
 }
 
 function sleep(ms: number): Promise<void> {
