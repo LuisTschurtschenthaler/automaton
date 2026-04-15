@@ -730,10 +730,10 @@ describe("Static Model Baseline", () => {
     expect(ids).toContain("gpt-5.3");
   });
 
-  it("all models have positive pricing", () => {
+  it("all models have non-negative pricing", () => {
     for (const model of STATIC_MODEL_BASELINE) {
-      expect(model.costPer1kInput).toBeGreaterThan(0);
-      expect(model.costPer1kOutput).toBeGreaterThan(0);
+      expect(model.costPer1kInput).toBeGreaterThanOrEqual(0);
+      expect(model.costPer1kOutput).toBeGreaterThanOrEqual(0);
     }
   });
 

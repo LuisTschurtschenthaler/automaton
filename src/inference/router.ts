@@ -126,18 +126,22 @@ export class InferenceRouter {
         }
       }
 
-      // 4. Pass messages through — the inference client handles
-      //    provider-specific formatting (Anthropic tool_result blocks, etc.)
-      const transformedMessages = messages;
+      // 4. Fit messages into model's context window.
+      //    GitHub Models free tier only allows 8k tokens per request.
+      //    Reserve space for output tokens; trim oldest messages if needed.
+      const preference = this.getPreference(tier, taskType);
+      let effectiveMaxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
+      effectiveMaxTokens = Math.min(effectiveMaxTokens, model.contextWindow / 2);
+
+      const inputBudget = model.contextWindow - effectiveMaxTokens;
+      const transformedMessages = this.fitMessagesToContext(messages, inputBudget);
 
       // 5. Build inference options
-      const preference = this.getPreference(tier, taskType);
-      const maxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
       const timeout = TASK_TIMEOUTS[taskType] || 120_000;
 
       const inferenceOptions: any = {
         model: model.modelId,
-        maxTokens,
+        maxTokens: effectiveMaxTokens,
         tools: tools,
       };
 
@@ -311,5 +315,58 @@ export class InferenceRouter {
 
   private getPreference(tier: SurvivalTier, taskType: InferenceTaskType): ModelPreference | undefined {
     return DEFAULT_ROUTING_MATRIX[tier]?.[taskType];
+  }
+
+  /**
+   * Trim messages to fit within a token budget.
+   * Keeps the system message, then fills with the most-recent messages.
+   * Uses the rough estimate of 1 token ≈ 4 chars.
+   */
+  private fitMessagesToContext(messages: any[], tokenBudget: number): any[] {
+    const estimateTokens = (msg: any): number =>
+      Math.ceil(((msg.content?.length || 0) + (msg.tool_calls ? JSON.stringify(msg.tool_calls).length : 0)) / 4);
+
+    const totalTokens = messages.reduce((sum, m) => sum + estimateTokens(m), 0);
+    if (totalTokens <= tokenBudget) return messages;
+
+    // Separate system messages (always kept) from the rest
+    const systemMsgs = messages.filter((m) => m.role === "system");
+    const otherMsgs = messages.filter((m) => m.role !== "system");
+
+    let budget = tokenBudget;
+    const result: any[] = [];
+
+    // 1. Always include system messages — truncate content if too large
+    for (const sys of systemMsgs) {
+      let tokens = estimateTokens(sys);
+      if (tokens > budget * 0.5) {
+        // Truncate system prompt to fit in half the budget
+        const maxChars = Math.floor(budget * 0.5 * 4);
+        result.push({ ...sys, content: (sys.content || "").slice(0, maxChars) + "\n[System prompt truncated to fit model context limit]" });
+        tokens = Math.ceil(maxChars / 4) + 15;
+      } else {
+        result.push(sys);
+      }
+      budget -= tokens;
+    }
+
+    // 2. Fill remaining budget with most-recent messages (newest first)
+    const recent: any[] = [];
+    for (let i = otherMsgs.length - 1; i >= 0; i--) {
+      const tokens = estimateTokens(otherMsgs[i]);
+      if (tokens > budget) break;
+      recent.unshift(otherMsgs[i]);
+      budget -= tokens;
+    }
+
+    if (recent.length < otherMsgs.length) {
+      const dropped = otherMsgs.length - recent.length;
+      logger.info(`Trimmed ${dropped} older messages to fit ${messages.reduce((s, m) => s + estimateTokens(m), 0)} tokens into ${tokenBudget}-token context window`);
+      // Inject a summary marker so the model knows context was trimmed
+      result.push({ role: "user" as const, content: `[${dropped} earlier messages trimmed — context window limited to ${tokenBudget} input tokens]` });
+    }
+
+    result.push(...recent);
+    return result;
   }
 }

@@ -134,15 +134,17 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
     enabled: true,
   },
   // ── GitHub Copilot models (via GitHub Models inference API) ──
+  // Free-tier GitHub PATs are capped at 8 000 tokens per request.
+  // contextWindow reflects this hard limit, not the underlying model's window.
   {
     modelId: "gpt-4o",
     provider: "github",
     displayName: "GPT-4o (GitHub)",
     tierMinimum: "normal",
-    costPer1kInput: 25,    // $2.50/M
-    costPer1kOutput: 100,  // $10.00/M
-    maxTokens: 16384,
-    contextWindow: 128000,
+    costPer1kInput: 0,     // free tier — no billing
+    costPer1kOutput: 0,
+    maxTokens: 2048,
+    contextWindow: 8000,
     supportsTools: true,
     supportsVision: true,
     parameterStyle: "max_completion_tokens",
@@ -153,10 +155,10 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
     provider: "github",
     displayName: "GPT-4o Mini (GitHub)",
     tierMinimum: "low_compute",
-    costPer1kInput: 2,     // $0.15/M ≈ 2 hundredths
-    costPer1kOutput: 6,    // $0.60/M ≈ 6 hundredths
-    maxTokens: 16384,
-    contextWindow: 128000,
+    costPer1kInput: 0,     // free tier — no billing
+    costPer1kOutput: 0,
+    maxTokens: 2048,
+    contextWindow: 8000,
     supportsTools: true,
     supportsVision: true,
     parameterStyle: "max_completion_tokens",

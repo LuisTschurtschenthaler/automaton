@@ -84,6 +84,17 @@ export class ResilientHttpClient {
         // whether we will actually retry. A server consistently returning 502
         // should eventually trip the circuit breaker.
         if (this.config.retryableStatuses.includes(response.status)) {
+          // 429 with insufficient_quota is a billing issue, not transient.
+          // Don't retry — return immediately so the router can try another provider.
+          // We also skip incrementing circuit breaker failures since this isn't
+          // a server health issue.
+          if (response.status === 429) {
+            const bodyText = await response.clone().text().catch(() => "");
+            if (bodyText.includes("insufficient_quota") || bodyText.includes("billing")) {
+              return response;
+            }
+          }
+
           state.failures++;
           if (state.failures >= this.config.circuitBreakerThreshold) {
             state.circuitOpenUntil = Date.now() + this.config.circuitBreakerResetMs;
