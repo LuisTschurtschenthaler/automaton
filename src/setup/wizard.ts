@@ -19,6 +19,11 @@ import {
 import { detectEnvironment } from "./environment.js";
 import { generateSoulMd, installDefaultSkills } from "./defaults.js";
 import type { ChainType } from "../identity/chain.js";
+import {
+  githubDeviceFlow,
+  validateGitHubToken,
+  validateGitHubModelsAccess,
+} from "../identity/github-oauth.js";
 
 export async function runSetupWizard(): Promise<AutomatonConfig> {
   showBanner();
@@ -96,11 +101,72 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   const creatorAddress = await promptAddress(creatorAddressLabel, walletChainType);
   console.log(chalk.green(`  Creator: ${creatorAddress}\n`));
 
-  console.log(chalk.white("  Optional: bring your own inference provider keys (press Enter to skip)."));
+  console.log(chalk.white("  Optional: connect GitHub for Copilot-backed inference + repo access.\n"));
 
-  const githubToken = await promptOptional("GitHub token (ghp_..., optional)");
-  if (githubToken && !githubToken.startsWith("ghp_") && !githubToken.startsWith("github_pat_")) {
-    console.log(chalk.yellow("  Warning: GitHub tokens usually start with ghp_ or github_pat_. Saving anyway."));
+  let githubToken: string | undefined;
+  const githubMethod = await promptOptional("GitHub auth: (1) OAuth login  (Enter to skip)");
+
+  if (githubMethod === "1") {
+    // OAuth Device Flow
+    const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
+    if (!clientId) {
+      console.log(chalk.yellow("  GITHUB_OAUTH_CLIENT_ID not set. Register an OAuth App at:"));
+      console.log(chalk.yellow("  https://github.com/settings/developers → enable Device Flow"));
+      const manualClientId = await promptOptional("GitHub OAuth client_id");
+      if (manualClientId) {
+        try {
+          githubToken = await githubDeviceFlow({
+            clientId: manualClientId,
+            onUserCode: (code, uri) => {
+              console.log("");
+              console.log(chalk.cyan("  ┌──────────────────────────────────────────┐"));
+              console.log(chalk.cyan(`  │  Open: ${uri.padEnd(33)}│`));
+              console.log(chalk.cyan(`  │  Code: ${chalk.white.bold(code)}${" ".repeat(33 - code.length)}│`));
+              console.log(chalk.cyan("  └──────────────────────────────────────────┘"));
+              console.log(chalk.dim("  Waiting for authorization...\n"));
+            },
+          });
+          const login = await validateGitHubToken(githubToken);
+          console.log(chalk.green(`  Authenticated as ${login}`));
+
+          const modelsOk = await validateGitHubModelsAccess(githubToken);
+          if (modelsOk) {
+            console.log(chalk.green("  GitHub Models access: ✓"));
+          } else {
+            console.log(chalk.yellow("  GitHub Models access: ✗ (token may lack models access)"));
+          }
+        } catch (err: any) {
+          console.log(chalk.yellow(`  OAuth failed: ${err.message}`));
+          console.log(chalk.yellow("  You can add a token later via --configure.\n"));
+        }
+      }
+    } else {
+      try {
+        githubToken = await githubDeviceFlow({
+          clientId,
+          onUserCode: (code, uri) => {
+            console.log("");
+            console.log(chalk.cyan("  ┌──────────────────────────────────────────┐"));
+            console.log(chalk.cyan(`  │  Open: ${uri.padEnd(33)}│`));
+            console.log(chalk.cyan(`  │  Code: ${chalk.white.bold(code)}${" ".repeat(33 - code.length)}│`));
+            console.log(chalk.cyan("  └──────────────────────────────────────────┘"));
+            console.log(chalk.dim("  Waiting for authorization...\n"));
+          },
+        });
+        const login = await validateGitHubToken(githubToken);
+        console.log(chalk.green(`  Authenticated as ${login}`));
+
+        const modelsOk = await validateGitHubModelsAccess(githubToken);
+        if (modelsOk) {
+          console.log(chalk.green("  GitHub Models access: ✓"));
+        } else {
+          console.log(chalk.yellow("  GitHub Models access: ✗ (token may lack models access)"));
+        }
+      } catch (err: any) {
+        console.log(chalk.yellow(`  OAuth failed: ${err.message}`));
+        console.log(chalk.yellow("  You can add a token later via --configure.\n"));
+      }
+    }
   }
 
   const ollamaInput = await promptOptional("Ollama base URL (http://localhost:11434, optional)");

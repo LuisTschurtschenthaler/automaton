@@ -12,6 +12,12 @@ import { createLogger } from "../observability/logger.js";
 import type BetterSqlite3 from "better-sqlite3";
 import { modelRegistryUpsert, modelRegistryGet } from "../state/database.js";
 import type { ModelRegistryRow, SurvivalTier } from "../types.js";
+import {
+  GITHUB_MODELS_CATALOG_URL,
+  GITHUB_MODELS_INFERENCE_BASE_URL,
+  fromGitHubModelsCatalogModelId,
+  getGitHubModelsHeaders,
+} from "./github-models.js";
 
 const logger = createLogger("model-discovery");
 
@@ -51,19 +57,22 @@ export async function discoverModelsFromProvider(
   });
 
   const baseUrl = endpoint.baseUrl.replace(/\/+$/, "");
-  // Try /v1/models first, then /models as fallback
-  const urls = baseUrl.endsWith("/v1")
-    ? [`${baseUrl}/models`]
-    : [`${baseUrl}/v1/models`, `${baseUrl}/models`];
+  const urls = endpoint.id === "github"
+    ? [GITHUB_MODELS_CATALOG_URL]
+    : baseUrl.endsWith("/v1")
+      ? [`${baseUrl}/models`]
+      : [`${baseUrl}/v1/models`, `${baseUrl}/models`];
 
   for (const url of urls) {
     try {
       const resp = await client.request(url, {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${endpoint.apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: endpoint.id === "github"
+          ? getGitHubModelsHeaders(endpoint.apiKey)
+          : {
+              Authorization: `Bearer ${endpoint.apiKey}`,
+              "Content-Type": "application/json",
+            },
         timeout: DISCOVERY_TIMEOUT_MS,
       });
 
@@ -79,7 +88,11 @@ export async function discoverModelsFromProvider(
 
       for (const entry of modelList) {
         if (!entry || typeof entry !== "object") continue;
-        const id = typeof entry.id === "string" ? entry.id : null;
+        const id = typeof entry.id === "string"
+          ? (endpoint.id === "github"
+              ? fromGitHubModelsCatalogModelId(entry.id)
+              : entry.id)
+          : null;
         if (!id) continue;
 
         models.push({
@@ -151,7 +164,7 @@ export function buildProviderEndpoints(config?: {
     endpoints.push({
       id: "github",
       name: "GitHub Copilot",
-      baseUrl: "https://models.inference.ai.azure.com",
+      baseUrl: GITHUB_MODELS_INFERENCE_BASE_URL,
       apiKey: githubToken,
     });
   }
@@ -215,7 +228,6 @@ function inferSurvivalTier(modelId: string): SurvivalTier {
 
 // ─── GitHub Model Discovery ────────────────────────────────────
 
-const GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com";
 const GITHUB_DISCOVERY_TIMEOUT_MS = 10_000;
 
 /**
@@ -230,7 +242,7 @@ export async function discoverGitHubModels(
   githubToken: string,
   db: BetterSqlite3.Database,
 ): Promise<string[]> {
-  const url = `${GITHUB_MODELS_BASE_URL}/v1/models`;
+  const url = GITHUB_MODELS_CATALOG_URL;
   const staticByModel = new Map(
     STATIC_MODEL_BASELINE.map((m) => [m.modelId, m]),
   );
@@ -238,14 +250,11 @@ export async function discoverGitHubModels(
   let data: any;
   try {
     const resp = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${githubToken}`,
-        "Content-Type": "application/json",
-      },
+      headers: getGitHubModelsHeaders(githubToken),
       signal: AbortSignal.timeout(GITHUB_DISCOVERY_TIMEOUT_MS),
     });
     if (!resp.ok) {
-      logger.warn(`GitHub Models /v1/models returned ${resp.status} — skipping discovery`);
+      logger.warn(`GitHub Models catalog returned ${resp.status} — skipping discovery`);
       return [];
     }
     data = await resp.json();
@@ -264,7 +273,9 @@ export async function discoverGitHubModels(
   const registered: string[] = [];
 
   for (const entry of modelList) {
-    const modelId = typeof entry.id === "string" ? entry.id : null;
+    const modelId = typeof entry.id === "string"
+      ? fromGitHubModelsCatalogModelId(entry.id)
+      : null;
     if (!modelId) continue;
 
     const staticMatch = staticByModel.get(modelId);
@@ -360,7 +371,7 @@ export function generateSuggestedConfig(
     if (models.length === 0) continue;
 
     const baseUrlMap: Record<string, string> = {
-      github: "https://models.inference.ai.azure.com",
+      github: GITHUB_MODELS_INFERENCE_BASE_URL,
       groq: "https://api.groq.com/openai/v1",
       together: "https://api.together.xyz/v1",
       local: "http://localhost:11434/v1",
@@ -376,7 +387,7 @@ export function generateSuggestedConfig(
     providers.push({
       id: result.providerId,
       name: result.providerName,
-      baseUrl: baseUrlMap[result.providerId] || "https://models.inference.ai.azure.com",
+      baseUrl: baseUrlMap[result.providerId] || GITHUB_MODELS_INFERENCE_BASE_URL,
       apiKeyEnvVar: apiKeyMap[result.providerId] || "GITHUB_TOKEN",
       models,
       maxRequestsPerMinute: 500,

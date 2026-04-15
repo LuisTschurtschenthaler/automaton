@@ -497,6 +497,12 @@ function sleep(ms: number): Promise<void> {
 
 // ─── GitHub Inference Client Factory ───────────────────────────
 
+import {
+  getGitHubModelsDefaultHeaders,
+  GITHUB_MODELS_INFERENCE_BASE_URL,
+  toGitHubModelsApiModelId,
+} from "./inference/github-models.js";
+
 function createGitHubInferenceClient(params: {
   defaultModel: string;
   lowComputeModel: string;
@@ -515,11 +521,12 @@ function createGitHubInferenceClient(params: {
       const { default: OpenAI } = await import("openai");
       const client = new OpenAI({
         apiKey: params.githubToken,
-        baseURL: "https://models.inference.ai.azure.com",
+        baseURL: GITHUB_MODELS_INFERENCE_BASE_URL,
+        defaultHeaders: getGitHubModelsDefaultHeaders(),
       });
 
       const response = await client.chat.completions.create({
-        model,
+        model: toGitHubModelsApiModelId(model),
         messages: messages.map((m) => ({
           role: m.role as any,
           content: m.content || "",

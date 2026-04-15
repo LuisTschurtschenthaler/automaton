@@ -6,6 +6,7 @@ import {
   type ModelConfig,
   type ResolvedModel,
 } from "./provider-registry.js";
+import { toGitHubModelsApiModelId } from "./github-models.js";
 
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 503]);
 const RETRY_BACKOFF_MS = [1000, 2000, 4000] as const;
@@ -228,7 +229,7 @@ export class UnifiedInferenceClient {
     params: SharedChatParams,
   ): Promise<UnifiedInferenceResult> {
     const startedAt = Date.now();
-    const payload = this.buildChatCompletionRequest(model.id, params);
+    const payload = this.buildChatCompletionRequest(providerId, model.id, params);
     if (params.stream) {
       const stream = await client.chat.completions.create({
         ...payload,
@@ -271,9 +272,13 @@ export class UnifiedInferenceClient {
     });
   }
 
-  private buildChatCompletionRequest(modelId: string, params: SharedChatParams): Record<string, unknown> {
+  private buildChatCompletionRequest(
+    providerId: string,
+    modelId: string,
+    params: SharedChatParams,
+  ): Record<string, unknown> {
     const payload: Record<string, unknown> = {
-      model: modelId,
+      model: providerId === "github" ? toGitHubModelsApiModelId(modelId) : modelId,
       messages: params.messages.map((message) => ({
         role: message.role,
         content: message.content,

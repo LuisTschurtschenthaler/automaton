@@ -128,6 +128,30 @@ export async function runAgentLoop(
     process.env.GITHUB_TOKEN = config.githubToken;
   }
 
+  // Validate GitHub token early so we get a clear error instead of silent empty responses
+  if (process.env.GITHUB_TOKEN) {
+    try {
+      const resp = await fetch("https://api.github.com/user", {
+        headers: {
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (resp.ok) {
+        const user = await resp.json() as Record<string, unknown>;
+        logger.info(`GitHub token valid — authenticated as ${user.login}`);
+      } else if (resp.status === 401) {
+        logger.warn("GITHUB_TOKEN is invalid or expired — GitHub Models inference will fail. Run --configure to update.");
+      } else {
+        logger.warn(`GitHub token validation returned HTTP ${resp.status}`);
+      }
+    } catch (err: any) {
+      logger.warn(`GitHub token validation failed: ${err.message}`);
+    }
+  }
+
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
 

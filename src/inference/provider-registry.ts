@@ -1,5 +1,9 @@
 import fs from "node:fs";
 import OpenAI from "openai";
+import {
+  getGitHubModelsDefaultHeaders,
+  GITHUB_MODELS_INFERENCE_BASE_URL,
+} from "./github-models.js";
 
 export type ModelTier = "reasoning" | "fast" | "cheap";
 
@@ -162,7 +166,7 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
   {
     id: "github",
     name: "GitHub Copilot",
-    baseUrl: "https://models.inference.ai.azure.com",
+    baseUrl: GITHUB_MODELS_INFERENCE_BASE_URL,
     apiKeyEnvVar: "GITHUB_TOKEN",
     models: [
       {
@@ -434,6 +438,11 @@ export class ProviderRegistry {
     const client = new OpenAI({
       apiKey,
       baseURL: provider.baseUrl,
+      ...(provider.id === "github"
+        ? {
+            defaultHeaders: getGitHubModelsDefaultHeaders(),
+          }
+        : {}),
     });
 
     return {
@@ -541,7 +550,7 @@ function normalizeProviders(input: unknown): ProviderConfig[] {
     normalized.push({
       id,
       name: stringOr(candidate.name, fallback?.name ?? id),
-      baseUrl: stringOr(candidate.baseUrl, fallback?.baseUrl ?? "https://models.inference.ai.azure.com"),
+      baseUrl: stringOr(candidate.baseUrl, fallback?.baseUrl ?? GITHUB_MODELS_INFERENCE_BASE_URL),
       apiKeyEnvVar: stringOr(candidate.apiKeyEnvVar, fallback?.apiKeyEnvVar ?? "GITHUB_TOKEN"),
       models,
       maxRequestsPerMinute: numberOr(candidate.maxRequestsPerMinute, fallback?.maxRequestsPerMinute ?? 600),

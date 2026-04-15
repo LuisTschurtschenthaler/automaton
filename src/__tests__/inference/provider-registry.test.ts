@@ -226,7 +226,7 @@ describe("ProviderRegistry", () => {
       providers: [
         {
           id: "github",
-          baseUrl: "https://models.inference.ai.azure.com",
+          baseUrl: "https://models.github.ai/inference",
           apiKeyEnvVar: "GITHUB_TOKEN",
           priority: 1,
           enabled: true,
@@ -322,7 +322,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.getModel("github", "gpt-4.1-mini");
 
     expect(resolved.provider.id).toBe("github");
-    expect(resolved.model.id).toBe("gpt-4o-mini");
+    expect(resolved.model.id).toBe("gpt-4.1-mini");
   });
 
   it("getModel throws for unknown provider", () => {

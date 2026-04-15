@@ -54,7 +54,7 @@ describe("ProviderRegistry — Default Providers", () => {
 
     expect(github).toBeDefined();
     expect(github!.name).toBe("GitHub Copilot");
-    expect(github!.baseUrl).toBe("https://models.inference.ai.azure.com");
+    expect(github!.baseUrl).toBe("https://models.github.ai/inference");
     expect(github!.apiKeyEnvVar).toBe("GITHUB_TOKEN");
   });
 
@@ -234,7 +234,7 @@ describe("ProviderRegistry — fromConfig with GitHub", () => {
         {
           id: "github",
           name: "GitHub Copilot",
-          baseUrl: "https://models.inference.ai.azure.com",
+          baseUrl: "https://models.github.ai/inference",
           apiKeyEnvVar: "GITHUB_TOKEN",
           models: [
             {
@@ -275,7 +275,7 @@ describe("ProviderRegistry — fromConfig with GitHub", () => {
         {
           id: "github",
           name: "GitHub Copilot",
-          baseUrl: "https://models.inference.ai.azure.com",
+          baseUrl: "https://models.github.ai/inference",
           apiKeyEnvVar: "GITHUB_TOKEN",
           models: [
             {
@@ -383,7 +383,7 @@ function makeGithubProvider(): ProviderConfig {
   return {
     id: "github",
     name: "GitHub Copilot",
-    baseUrl: "https://models.inference.ai.azure.com",
+    baseUrl: "https://models.github.ai/inference",
     apiKeyEnvVar: "GITHUB_TOKEN",
     models: [
       {

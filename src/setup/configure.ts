@@ -16,6 +16,11 @@ import type { AutomatonConfig, ModelStrategyConfig, TreasuryPolicy, ModelEntry }
 import { closePrompts } from "./prompts.js";
 import { createDatabase } from "../state/database.js";
 import { ModelRegistry } from "../inference/registry.js";
+import {
+  githubDeviceFlow,
+  validateGitHubToken,
+  validateGitHubModelsAccess,
+} from "../identity/github-oauth.js";
 
 // ─── Readline helpers ─────────────────────────────────────────────
 
@@ -202,7 +207,45 @@ async function configureProviders(config: AutomatonConfig): Promise<void> {
     config.conwayApiKey,
   );
 
-  config.githubToken = await askString("GitHub token  (ghp_...)", config.githubToken) || undefined;
+  // GitHub login — OAuth only
+  const currentGh = config.githubToken ? maskSecret(config.githubToken) : chalk.dim("(not set)");
+  console.log(`\n  GitHub login: ${currentGh}`);
+  const ghChoice = await ask(
+    `  ${chalk.white("→")} (1) OAuth login  (Enter to keep, - to clear): `,
+  );
+
+  if (ghChoice === "1") {
+    const clientId = process.env.GITHUB_OAUTH_CLIENT_ID || await ask(
+      `  ${chalk.white("→")} GitHub OAuth client_id: `,
+    );
+    if (clientId) {
+      try {
+        const token = await githubDeviceFlow({
+          clientId: clientId.trim(),
+          onUserCode: (code, uri) => {
+            console.log("");
+            console.log(chalk.cyan("  ┌──────────────────────────────────────────┐"));
+            console.log(chalk.cyan(`  │  Open: ${uri.padEnd(33)}│`));
+            console.log(chalk.cyan(`  │  Code: ${chalk.white.bold(code)}${" ".repeat(33 - code.length)}│`));
+            console.log(chalk.cyan("  └──────────────────────────────────────────┘"));
+            console.log(chalk.dim("  Waiting for authorization...\n"));
+          },
+        });
+        const login = await validateGitHubToken(token);
+        console.log(chalk.green(`  Authenticated as ${login}`));
+        const modelsOk = await validateGitHubModelsAccess(token);
+        console.log(modelsOk
+          ? chalk.green("  GitHub Models access: ✓")
+          : chalk.yellow("  GitHub Models access: ✗ (token may lack models access)"));
+        config.githubToken = token;
+      } catch (err: any) {
+        console.log(chalk.yellow(`  OAuth failed: ${err.message}`));
+      }
+    }
+  } else if (ghChoice === "-") {
+    config.githubToken = undefined;
+  }
+
   config.ollamaBaseUrl = await askString("Ollama base URL  (http://localhost:11434)", config.ollamaBaseUrl) || undefined;
 
   console.log("");

@@ -61,7 +61,7 @@ describe("buildProviderEndpoints", () => {
     const github = endpoints.find((e) => e.id === "github");
     expect(github).toBeDefined();
     expect(github!.name).toBe("GitHub Copilot");
-    expect(github!.baseUrl).toBe("https://models.inference.ai.azure.com");
+    expect(github!.baseUrl).toBe("https://models.github.ai/inference");
     expect(github!.apiKey).toBe("ghp_test");
   });
 
@@ -143,7 +143,7 @@ describe("discoverModelsFromProvider", () => {
     } as unknown as ResilientHttpClient;
 
     const result = await discoverModelsFromProvider(
-      { id: "github", name: "GitHub", baseUrl: "https://models.inference.ai.azure.com", apiKey: "ghp_test" },
+      { id: "github", name: "GitHub", baseUrl: "https://models.github.ai/inference", apiKey: "ghp_test" },
       mockClient,
     );
 
@@ -184,7 +184,7 @@ describe("discoverModelsFromProvider", () => {
     } as unknown as ResilientHttpClient;
 
     const result = await discoverModelsFromProvider(
-      { id: "github", name: "GitHub", baseUrl: "https://models.inference.ai.azure.com", apiKey: "bad-key" },
+      { id: "github", name: "GitHub", baseUrl: "https://models.github.ai/inference", apiKey: "bad-key" },
       mockClient,
     );
 
@@ -198,7 +198,7 @@ describe("discoverModelsFromProvider", () => {
     } as unknown as ResilientHttpClient;
 
     const result = await discoverModelsFromProvider(
-      { id: "github", name: "GitHub", baseUrl: "https://models.inference.ai.azure.com", apiKey: "ghp_test" },
+      { id: "github", name: "GitHub", baseUrl: "https://models.github.ai/inference", apiKey: "ghp_test" },
       mockClient,
     );
 
@@ -285,7 +285,7 @@ describe("discoverModelsFromProvider", () => {
     } as unknown as ResilientHttpClient;
 
     await discoverModelsFromProvider(
-      { id: "github", name: "GitHub", baseUrl: "https://models.inference.ai.azure.com", apiKey: "ghp_secret_token" },
+      { id: "github", name: "GitHub", baseUrl: "https://models.github.ai/inference", apiKey: "ghp_secret_token" },
       mockClient,
     );
 
@@ -372,7 +372,7 @@ describe("generateSuggestedConfig", () => {
     expect(config.providers.length).toBe(1);
     expect(config.providers[0].id).toBe("github");
     expect(config.providers[0].name).toBe("GitHub Copilot");
-    expect(config.providers[0].baseUrl).toBe("https://models.inference.ai.azure.com");
+    expect(config.providers[0].baseUrl).toBe("https://models.github.ai/inference");
     expect(config.providers[0].apiKeyEnvVar).toBe("GITHUB_TOKEN");
     expect(config.providers[0].models.length).toBe(2);
     expect(config.providers[0].enabled).toBe(true);
