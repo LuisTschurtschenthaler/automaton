@@ -632,7 +632,7 @@ export async function runAgentLoop(
       const survivalTier = getSurvivalTier(financial.creditsCents);
       const candidates = inferenceRouter.selectCandidates(survivalTier, "agent_turn");
       const candidateModel = candidates.length > 0 ? candidates[0].modelId : inference.getDefaultModel();
-      log(config, `[THINK] Routing inference (tier: ${survivalTier}, model: ${candidateModel})...`);
+      log(config, `[THINK] Routing inference (tier: ${survivalTier}, model: ${candidateModel}, candidates: ${candidates.length})...`);
 
       const inferenceTools = toolsToInferenceFormat(tools);
       const routerResult = await inferenceRouter.route(
@@ -998,14 +998,22 @@ export async function runAgentLoop(
 
       // Terminal errors: insufficient quota, auth failures, structural 400s, etc.
       // Retrying won't help — sleep immediately with longer backoff.
+      // Note: if multiple providers are configured, the InferenceRouter tries
+      // all candidates before throwing.  An "insufficient_quota" that reaches
+      // here means ALL providers have been exhausted (or only one was available).
       const isTerminalError =
         err.message?.includes("insufficient_quota") ||
         err.message?.includes("invalid_api_key") ||
         err.message?.includes("invalid_request_error") ||
+        err.message?.includes("All providers failed") ||
         (err.message?.includes("401") && err.message?.includes("Inference error")) ||
         (err.message?.includes("400") && err.message?.includes("Inference error"));
       if (isTerminalError) {
-        log(config, `[TERMINAL] Provider error is permanent. Sleeping 10 min.`);
+        // Log which provider(s) are available for debugging misconfiguration
+        const availableProviders = inferenceRouter
+          .selectCandidates(getSurvivalTier(financial.creditsCents), "agent_turn")
+          .map((c) => `${c.modelId}(${c.provider})`);
+        log(config, `[TERMINAL] Provider error is permanent. Available candidates: [${availableProviders.join(", ")}]. Sleeping 10 min.`);
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
         db.setKV("sleep_until", new Date(Date.now() + 600_000).toISOString());

@@ -280,6 +280,16 @@ async function run(): Promise<void> {
   // Resolve Ollama base URL: env var takes precedence over config
   const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl;
 
+  // Expose provider keys as env vars so InferenceRouter.isProviderAvailable()
+  // can detect them.  Config values take precedence (env var is a fallback).
+  if (apiKey && !process.env.CONWAY_API_KEY) {
+    process.env.CONWAY_API_KEY = apiKey;
+  }
+  const githubToken = config.githubToken || process.env.GITHUB_TOKEN;
+  if (githubToken && !process.env.GITHUB_TOKEN) {
+    process.env.GITHUB_TOKEN = githubToken;
+  }
+
   // Create inference client — pass a live registry lookup so model names like
   // "gpt-oss:120b" route to Ollama based on their registered provider, not heuristics.
   const modelRegistry = new ModelRegistry(db.raw);
@@ -290,7 +300,7 @@ async function run(): Promise<void> {
     defaultModel: config.inferenceModel,
     maxTokens: config.maxTokensPerTurn,
     lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-5-mini",
-    githubToken: config.githubToken,
+    githubToken,
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
   });
