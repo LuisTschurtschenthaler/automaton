@@ -2340,14 +2340,9 @@ Model: ${ctx.inference.getDefaultModel()}
             return `Model Registry (${rows.length} models):\n${lines.join("\n")}`;
           }
         } catch {
-          // Registry not initialized yet, fall back to API
+          // Registry not initialized yet
         }
-        const models = await ctx.conway.listModels();
-        const lines = models.map(
-          (m) =>
-            `${m.id} (${m.provider}) — $${m.pricing.inputPerMillion}/$${m.pricing.outputPerMillion} per 1M tokens (in/out)`,
-        );
-        return `Available models:\n${lines.join("\n")}`;
+        return "No models found in registry.";
       },
     },
 
