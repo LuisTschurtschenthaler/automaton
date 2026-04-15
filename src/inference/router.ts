@@ -30,7 +30,6 @@ type Database = BetterSqlite3.Database;
 /** Map provider names to the env var that holds their API key. */
 const PROVIDER_KEY_ENV: Record<string, string> = {
   ollama: "", // always available when configured
-  conway: "CONWAY_API_KEY",
   github: "GITHUB_TOKEN",
 };
 
@@ -86,7 +85,7 @@ export class InferenceRouter {
     let lastError: Error | undefined;
     const failures: { model: string; provider: string; error: string }[] = [];
 
-    for (const model of candidates) {
+    for (let model of candidates) {
       // 2. Estimate cost and check budget
       const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
       const estimatedCostCents = Math.ceil(
@@ -145,15 +144,17 @@ export class InferenceRouter {
         tools: tools,
       };
 
-      // 6. Call inference with timeout
+      // 6. Call inference with timeout (with 413 retry)
       const startTime = Date.now();
       let response: any;
+      let messagesToSend = transformedMessages;
+      let retried413 = false;
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeout);
         try {
           inferenceOptions.signal = controller.signal;
-          response = await inferenceChat(transformedMessages, inferenceOptions);
+          response = await inferenceChat(messagesToSend, inferenceOptions);
         } finally {
           clearTimeout(timer);
         }
@@ -168,11 +169,65 @@ export class InferenceRouter {
           lastError = new Error(msg);
           continue;
         }
-        // Retryable provider errors — try next candidate
-        logger.warn(`Candidate ${model.modelId}(${model.provider}) failed: ${errMsg.slice(0, 200)}`, { latencyMs });
-        failures.push({ model: model.modelId, provider: model.provider, error: errMsg.slice(0, 200) });
-        lastError = error;
-        continue;
+
+        // 413 — request too large. Parse the real token limit, re-trim, and retry once.
+        const is413 = errMsg.includes("413") || errMsg.includes("tokens_limit_reached") || errMsg.includes("Request body too large");
+        if (is413 && !retried413) {
+          const realLimit = this.parseTokenLimit(errMsg);
+          if (realLimit > 0) {
+            retried413 = true;
+            // Update registry so future calls use the correct context window
+            const correctedContextWindow = realLimit;
+            logger.info(
+              `413 from ${model.modelId}(${model.provider}): actual limit ${realLimit} tokens. ` +
+              `Updating contextWindow from ${model.contextWindow} and retrying.`,
+            );
+            model = { ...model, contextWindow: correctedContextWindow };
+            this.registry.upsert({ ...model, updatedAt: new Date().toISOString() });
+
+            // Recalculate budgets with the real limit
+            const retryMaxTokens = Math.min(
+              request.maxTokens || preference?.maxTokens || model.maxTokens,
+              Math.floor(correctedContextWindow / 2),
+            );
+            const retryInputBudget = correctedContextWindow - retryMaxTokens;
+            messagesToSend = this.fitMessagesToContext(messages, retryInputBudget);
+            inferenceOptions.maxTokens = retryMaxTokens;
+
+            // Retry once
+            const retryStart = Date.now();
+            try {
+              const retryController = new AbortController();
+              const retryTimer = setTimeout(() => retryController.abort(), timeout);
+              try {
+                inferenceOptions.signal = retryController.signal;
+                response = await inferenceChat(messagesToSend, inferenceOptions);
+              } finally {
+                clearTimeout(retryTimer);
+              }
+            } catch (retryError: any) {
+              const retryLatency = Date.now() - retryStart;
+              const retryMsg = retryError.message || String(retryError);
+              logger.warn(`Candidate ${model.modelId}(${model.provider}) failed after 413 retry: ${retryMsg.slice(0, 200)}`, { latencyMs: retryLatency });
+              failures.push({ model: model.modelId, provider: model.provider, error: `413 retry failed: ${retryMsg.slice(0, 200)}` });
+              lastError = retryError;
+              continue;
+            }
+            // Retry succeeded — fall through to cost recording
+          } else {
+            // Couldn't parse limit — skip to next candidate
+            logger.warn(`Candidate ${model.modelId}(${model.provider}) failed: ${errMsg.slice(0, 200)}`, { latencyMs });
+            failures.push({ model: model.modelId, provider: model.provider, error: errMsg.slice(0, 200) });
+            lastError = error;
+            continue;
+          }
+        } else {
+          // Non-413 or already retried — try next candidate
+          logger.warn(`Candidate ${model.modelId}(${model.provider}) failed: ${errMsg.slice(0, 200)}`, { latencyMs });
+          failures.push({ model: model.modelId, provider: model.provider, error: errMsg.slice(0, 200) });
+          lastError = error;
+          continue;
+        }
       }
       const latencyMs = Date.now() - startTime;
 
@@ -315,6 +370,23 @@ export class InferenceRouter {
 
   private getPreference(tier: SurvivalTier, taskType: InferenceTaskType): ModelPreference | undefined {
     return DEFAULT_ROUTING_MATRIX[tier]?.[taskType];
+  }
+
+  /**
+   * Parse the actual token limit from a 413 error message.
+   * Matches patterns like "Max size: 8000 tokens" or "max_tokens: 4000".
+   * Returns 0 if no limit could be parsed.
+   */
+  private parseTokenLimit(errMsg: string): number {
+    // Match "Max size: 8000 tokens" or similar patterns
+    const match = errMsg.match(/Max size:\s*(\d+)\s*tokens/i)
+      || errMsg.match(/max[_\s]?tokens?[:\s]+(\d+)/i)
+      || errMsg.match(/limit[:\s]+(\d+)\s*tokens/i);
+    if (match) {
+      const limit = parseInt(match[1], 10);
+      if (Number.isFinite(limit) && limit > 0) return limit;
+    }
+    return 0;
   }
 
   /**

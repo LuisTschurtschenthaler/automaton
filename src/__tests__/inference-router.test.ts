@@ -176,7 +176,7 @@ describe("ModelRegistry", () => {
     registry.refreshFromApi([
       {
         id: "new-api-model",
-        provider: "conway",
+        provider: "github",
         display_name: "New API Model",
         max_tokens: 8192,
         context_window: 200000,
@@ -188,7 +188,7 @@ describe("ModelRegistry", () => {
 
     const entry = registry.get("new-api-model");
     expect(entry).toBeDefined();
-    expect(entry!.provider).toBe("conway");
+    expect(entry!.provider).toBe("github");
     expect(entry!.costPer1kInput).toBe(15);
   });
 
@@ -196,10 +196,10 @@ describe("ModelRegistry", () => {
     const registry = new ModelRegistry(db);
     registry.initialize();
 
-    // gpt-4.1 is now on GitHub (cost=0). Use a Conway model to test non-zero pricing.
-    const cost = registry.getCostPer1k("gpt-5.2");
-    expect(cost.input).toBeGreaterThan(0);
-    expect(cost.output).toBeGreaterThan(0);
+    // gpt-4.1 is on GitHub (cost=0). Verify zero-cost model returns zeros.
+    const cost = registry.getCostPer1k("gpt-4.1");
+    expect(cost.input).toBe(0);
+    expect(cost.output).toBe(0);
   });
 
   it("getCostPer1k returns zeros for unknown model", () => {
@@ -220,7 +220,7 @@ describe("InferenceRouter", () => {
 
   beforeEach(() => {
     // Ensure provider availability checks pass in the test environment
-    for (const key of ["CONWAY_API_KEY", "GITHUB_TOKEN"]) {
+    for (const key of ["GITHUB_TOKEN"]) {
       savedEnv[key] = process.env[key];
       process.env[key] = process.env[key] || "test-key";
     }
@@ -338,85 +338,117 @@ describe("InferenceRouter", () => {
     });
 
     it("returns error when budget is exhausted", async () => {
-      // Temporarily remove GITHUB_TOKEN to force Conway models (which have non-zero costs)
-      const savedGithub = process.env.GITHUB_TOKEN;
-      delete process.env.GITHUB_TOKEN;
-      try {
-        const strictBudget = new InferenceBudgetTracker(db, {
-          ...DEFAULT_MODEL_STRATEGY_CONFIG,
-          perCallCeilingCents: 1, // Very low ceiling
-        });
-        const strictRouter = new InferenceRouter(db, registry, strictBudget);
+      // Use a custom model with non-zero costs to test budget enforcement
+      registry.upsert({
+        modelId: "expensive-test-model",
+        provider: "github",
+        displayName: "Expensive Test Model",
+        tierMinimum: "normal",
+        costPer1kInput: 100,
+        costPer1kOutput: 200,
+        maxTokens: 32768,
+        contextWindow: 128000,
+        supportsTools: true,
+        supportsVision: false,
+        parameterStyle: "max_completion_tokens",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
 
-        // Insert a bunch of text to inflate the cost estimate
-        const longMessage = "x".repeat(100000);
-        const result = await strictRouter.route(
-          {
-            messages: [{ role: "user", content: longMessage }],
-            taskType: "agent_turn",
-            tier: "normal",
-            sessionId: "test-session",
-            maxTokens: 50000,
-          },
-          async () => ({ message: { content: "" }, usage: { promptTokens: 0, completionTokens: 0 }, finishReason: "stop" }),
-        );
-
-        expect(result.finishReason).toBe("budget_exceeded");
-      } finally {
-        if (savedGithub !== undefined) process.env.GITHUB_TOKEN = savedGithub;
-        else delete process.env.GITHUB_TOKEN;
+      // Disable all free GitHub models so only the expensive one is a candidate
+      for (const m of registry.getAll()) {
+        if (m.modelId !== "expensive-test-model") registry.setEnabled(m.modelId, false);
       }
+
+      const strictBudget = new InferenceBudgetTracker(db, {
+        ...DEFAULT_MODEL_STRATEGY_CONFIG,
+        inferenceModel: "expensive-test-model",
+        perCallCeilingCents: 1, // Very low ceiling
+      });
+      const strictRouter = new InferenceRouter(db, registry, strictBudget);
+
+      // Insert a bunch of text to inflate the cost estimate
+      const longMessage = "x".repeat(100000);
+      const result = await strictRouter.route(
+        {
+          messages: [{ role: "user", content: longMessage }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "test-session",
+          maxTokens: 50000,
+        },
+        async () => ({ message: { content: "" }, usage: { promptTokens: 0, completionTokens: 0 }, finishReason: "stop" }),
+      );
+
+      expect(result.finishReason).toBe("budget_exceeded");
     });
 
     it("enforces session budget when configured", async () => {
-      // Temporarily remove GITHUB_TOKEN to force Conway models (which have non-zero costs)
-      const savedGithub = process.env.GITHUB_TOKEN;
-      delete process.env.GITHUB_TOKEN;
-      try {
-        const sessionBudget = new InferenceBudgetTracker(db, {
-          ...DEFAULT_MODEL_STRATEGY_CONFIG,
-          sessionBudgetCents: 5,
-        });
-        const sessionRouter = new InferenceRouter(db, registry, sessionBudget);
+      // Use a custom model with non-zero costs to test budget enforcement
+      registry.upsert({
+        modelId: "expensive-test-model",
+        provider: "github",
+        displayName: "Expensive Test Model",
+        tierMinimum: "normal",
+        costPer1kInput: 100,
+        costPer1kOutput: 200,
+        maxTokens: 32768,
+        contextWindow: 128000,
+        supportsTools: true,
+        supportsVision: false,
+        parameterStyle: "max_completion_tokens",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
 
-        // Record enough cost to nearly exhaust the session budget
-        sessionBudget.recordCost({
-          sessionId: "budget-session",
-          turnId: null,
-          model: "gpt-5.2",
-          provider: "conway",
-          inputTokens: 1000,
-          outputTokens: 500,
-          costCents: 4,
-          latencyMs: 100,
-          tier: "normal",
-          taskType: "agent_turn",
-          cacheHit: false,
-        });
-
-        // Use a long message so the estimated cost pushes past the 5c limit
-        const longMessage = "x".repeat(100000);
-        const result = await sessionRouter.route(
-          {
-            messages: [{ role: "user", content: longMessage }],
-            taskType: "agent_turn",
-            tier: "normal",
-            sessionId: "budget-session",
-            maxTokens: 50000,
-          },
-          async () => ({
-            message: { content: "" },
-            usage: { promptTokens: 0, completionTokens: 0 },
-            finishReason: "stop",
-          }),
-        );
-
-        expect(result.finishReason).toBe("budget_exceeded");
-        expect(result.content).toContain("Session budget exceeded");
-      } finally {
-        if (savedGithub !== undefined) process.env.GITHUB_TOKEN = savedGithub;
-        else delete process.env.GITHUB_TOKEN;
+      // Disable all free GitHub models so only the expensive one is a candidate
+      for (const m of registry.getAll()) {
+        if (m.modelId !== "expensive-test-model") registry.setEnabled(m.modelId, false);
       }
+
+      const sessionBudget = new InferenceBudgetTracker(db, {
+        ...DEFAULT_MODEL_STRATEGY_CONFIG,
+        inferenceModel: "expensive-test-model",
+        sessionBudgetCents: 5,
+      });
+      const sessionRouter = new InferenceRouter(db, registry, sessionBudget);
+
+      // Record enough cost to nearly exhaust the session budget
+      sessionBudget.recordCost({
+        sessionId: "budget-session",
+        turnId: null,
+        model: "expensive-test-model",
+        provider: "github",
+        inputTokens: 1000,
+        outputTokens: 500,
+        costCents: 4,
+        latencyMs: 100,
+        tier: "normal",
+        taskType: "agent_turn",
+        cacheHit: false,
+      });
+
+      // Use a long message so the estimated cost pushes past the 5c limit
+      const longMessage = "x".repeat(100000);
+      const result = await sessionRouter.route(
+        {
+          messages: [{ role: "user", content: longMessage }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "budget-session",
+          maxTokens: 50000,
+        },
+        async () => ({
+          message: { content: "" },
+          usage: { promptTokens: 0, completionTokens: 0 },
+          finishReason: "stop",
+        }),
+      );
+
+      expect(result.finishReason).toBe("budget_exceeded");
+      expect(result.content).toContain("Session budget exceeded");
     });
 
     it("passes abort signal to inference function", async () => {
@@ -468,7 +500,7 @@ describe("InferenceRouter", () => {
         { role: "user" as const, content: "Hello" },
         { role: "assistant" as const, content: "Hi there" },
       ];
-      const result = router.transformMessagesForProvider(messages, "conway");
+      const result = router.transformMessagesForProvider(messages, "github");
       expect(result.length).toBe(3);
     });
 
@@ -486,7 +518,7 @@ describe("InferenceRouter", () => {
         { role: "tool" as const, content: "result1", tool_call_id: "tc1" },
         { role: "tool" as const, content: "result2", tool_call_id: "tc2" },
       ];
-      const result = router.transformMessagesForProvider(messages, "conway");
+      const result = router.transformMessagesForProvider(messages, "github");
 
       // Tool messages don't get merged by mergeConsecutiveSameRole (they're "tool" role, excluded)
       expect(result.length).toBe(4);
@@ -497,7 +529,7 @@ describe("InferenceRouter", () => {
         { role: "user" as const, content: "First" },
         { role: "user" as const, content: "Second" },
       ];
-      const result = router.transformMessagesForProvider(messages, "conway");
+      const result = router.transformMessagesForProvider(messages, "github");
       expect(result.length).toBe(1);
       expect(result[0].content).toContain("First");
       expect(result[0].content).toContain("Second");
@@ -505,7 +537,7 @@ describe("InferenceRouter", () => {
 
     it("throws error for empty message array", () => {
       expect(() => {
-        router.transformMessagesForProvider([], "conway");
+        router.transformMessagesForProvider([], "github");
       }).toThrow("Cannot route inference with empty message array");
     });
 
@@ -560,7 +592,7 @@ describe("InferenceBudgetTracker", () => {
         sessionId: "test",
         turnId: null,
         model: "gpt-4.1",
-        provider: "conway",
+        provider: "github",
         inputTokens: 1000,
         outputTokens: 500,
         costCents: 15,
@@ -591,7 +623,7 @@ describe("InferenceBudgetTracker", () => {
       sessionId: "session-1",
       turnId: "turn-1",
       model: "gpt-4.1",
-      provider: "conway",
+      provider: "github",
       inputTokens: 1000,
       outputTokens: 500,
       costCents: 5,
@@ -611,12 +643,12 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 10,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     tracker.recordCost({
-      sessionId: "s2", turnId: null, model: "gpt-4.1-mini", provider: "conway",
+      sessionId: "s2", turnId: null, model: "gpt-4.1-mini", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 100, tier: "low_compute", taskType: "heartbeat_triage", cacheHit: false,
     });
@@ -629,7 +661,7 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 7,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -642,12 +674,12 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 3,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     tracker.recordCost({
-      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "my-session", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 200, outputTokens: 100, costCents: 6,
       latencyMs: 200, tier: "normal", taskType: "planning", cacheHit: false,
     });
@@ -660,12 +692,12 @@ describe("InferenceBudgetTracker", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     tracker.recordCost({
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 200, outputTokens: 100, costCents: 10,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -746,8 +778,9 @@ describe("Static Model Baseline", () => {
     expect(ids).toContain("gpt-4.1");
     expect(ids).toContain("gpt-4.1-mini");
     expect(ids).toContain("gpt-4.1-nano");
-    expect(ids).toContain("gpt-5.2");
-    expect(ids).toContain("gpt-5.3");
+    expect(ids).toContain("gpt-4o");
+    expect(ids).toContain("gpt-4o-mini");
+    expect(ids).toContain("o4-mini");
   });
 
   it("all models have non-negative pricing", () => {
@@ -758,7 +791,7 @@ describe("Static Model Baseline", () => {
   });
 
   it("all models have valid provider", () => {
-    const validProviders = ["conway", "ollama", "github", "other"];
+    const validProviders = ["ollama", "github", "other"];
     for (const model of STATIC_MODEL_BASELINE) {
       expect(validProviders).toContain(model.provider);
     }
@@ -812,7 +845,7 @@ describe("Inference DB Helpers", () => {
       sessionId: "s1",
       turnId: null,
       model: "gpt-4.1",
-      provider: "conway",
+      provider: "github",
       inputTokens: 100,
       outputTokens: 50,
       costCents: 5,
@@ -827,12 +860,12 @@ describe("Inference DB Helpers", () => {
 
   it("inferenceGetSessionCosts returns costs for session", () => {
     inferenceInsertCost(db, {
-      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "s1", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     inferenceInsertCost(db, {
-      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 3,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -851,7 +884,7 @@ describe("Inference DB Helpers", () => {
 
     // Insert a fresh record (uses datetime('now') default)
     inferenceInsertCost(db, {
-      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "conway",
+      sessionId: "s2", turnId: null, model: "gpt-4.1", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 200, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
@@ -885,7 +918,7 @@ describe("Inference DB Helpers", () => {
     const now = new Date().toISOString();
     modelRegistryUpsert(db, {
       modelId: "test-model",
-      provider: "conway",
+      provider: "github",
       displayName: "Test",
       tierMinimum: "normal",
       costPer1kInput: 10,
@@ -910,7 +943,7 @@ describe("Inference DB Helpers", () => {
   it("modelRegistryGetAll returns all entries", () => {
     const now = new Date().toISOString();
     modelRegistryUpsert(db, {
-      modelId: "m1", provider: "conway", displayName: "M1",
+      modelId: "m1", provider: "github", displayName: "M1",
       tierMinimum: "normal", costPer1kInput: 10, costPer1kOutput: 20,
       maxTokens: 4096, contextWindow: 128000, supportsTools: true,
       supportsVision: false, parameterStyle: "max_tokens", enabled: true,
@@ -931,7 +964,7 @@ describe("Inference DB Helpers", () => {
   it("modelRegistrySetEnabled toggles enabled flag", () => {
     const now = new Date().toISOString();
     modelRegistryUpsert(db, {
-      modelId: "m1", provider: "conway", displayName: "M1",
+      modelId: "m1", provider: "github", displayName: "M1",
       tierMinimum: "normal", costPer1kInput: 10, costPer1kOutput: 20,
       maxTokens: 4096, contextWindow: 128000, supportsTools: true,
       supportsVision: false, parameterStyle: "max_tokens", enabled: true,

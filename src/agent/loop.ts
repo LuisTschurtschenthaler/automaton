@@ -127,9 +127,6 @@ export async function runAgentLoop(
   if (config.githubToken && !process.env.GITHUB_TOKEN) {
     process.env.GITHUB_TOKEN = config.githubToken;
   }
-  if (config.conwayApiKey && !process.env.CONWAY_API_KEY) {
-    process.env.CONWAY_API_KEY = config.conwayApiKey;
-  }
 
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
@@ -159,7 +156,6 @@ export async function runAgentLoop(
       { label: "criticalModel", id: modelStrategyConfig.criticalModel },
     ];
     const availableProviders: string[] = [];
-    if (process.env.CONWAY_API_KEY) availableProviders.push("conway");
     if (process.env.GITHUB_TOKEN) availableProviders.push("github");
     if (ollamaBaseUrl) availableProviders.push("ollama");
     logger.info(`Available inference providers: ${availableProviders.join(", ") || "none"}`);
@@ -173,7 +169,6 @@ export async function runAgentLoop(
         logger.warn(`${label} "${id}" is disabled in registry`);
       } else {
         const providerEnvVars: Record<string, string> = {
-          conway: "CONWAY_API_KEY",
           github: "GITHUB_TOKEN",
         };
         const envVar = providerEnvVars[entry.provider];

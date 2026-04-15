@@ -136,76 +136,33 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
     parameterStyle: "max_completion_tokens",
     enabled: true,
   },
-  // ── Conway-served models (fallback — only models not on GitHub) ──
-  {
-    modelId: "gpt-5.2",
-    provider: "conway",
-    displayName: "GPT-5.2",
-    tierMinimum: "normal",
-    costPer1kInput: 18,    // $1.75/M
-    costPer1kOutput: 140,  // $14.00/M
-    maxTokens: 32768,
-    contextWindow: 1047576,
-    supportsTools: true,
-    supportsVision: true,
-    parameterStyle: "max_completion_tokens",
-    enabled: true,
-  },
-  {
-    modelId: "gpt-5-mini",
-    provider: "conway",
-    displayName: "GPT-5 Mini",
-    tierMinimum: "low_compute",
-    costPer1kInput: 8,     // $0.80/M
-    costPer1kOutput: 32,   // $3.20/M
-    maxTokens: 16384,
-    contextWindow: 1047576,
-    supportsTools: true,
-    supportsVision: true,
-    parameterStyle: "max_completion_tokens",
-    enabled: true,
-  },
-  {
-    modelId: "gpt-5.3",
-    provider: "conway",
-    displayName: "GPT-5.3",
-    tierMinimum: "normal",
-    costPer1kInput: 20,    // $2.00/M
-    costPer1kOutput: 80,   // $8.00/M
-    maxTokens: 32768,
-    contextWindow: 1047576,
-    supportsTools: true,
-    supportsVision: true,
-    parameterStyle: "max_completion_tokens",
-    enabled: true,
-  },
 ];
 
 // === Default Routing Matrix ===
 // Maps (tier, taskType) -> ModelPreference with candidate models
-// GitHub models are listed first (primary). Conway models are fallback-only.
+// All inference routes through GitHub Models (Copilot).
 
 export const DEFAULT_ROUTING_MATRIX: RoutingMatrix = {
   high: {
-    agent_turn: { candidates: ["gpt-4.1", "gpt-4o", "o4-mini", "gpt-5.2", "gpt-5.3"], maxTokens: 8192, ceilingCents: -1 },
-    heartbeat_triage: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini"], maxTokens: 2048, ceilingCents: 5 },
-    safety_check: { candidates: ["o4-mini", "gpt-4.1", "gpt-4o", "gpt-5.2", "gpt-5.3"], maxTokens: 4096, ceilingCents: 20 },
-    summarization: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini"], maxTokens: 4096, ceilingCents: 15 },
-    planning: { candidates: ["gpt-4.1", "o4-mini", "gpt-4o", "gpt-5.2", "gpt-5.3"], maxTokens: 8192, ceilingCents: -1 },
+    agent_turn: { candidates: ["gpt-4.1", "gpt-4o", "o4-mini"], maxTokens: 8192, ceilingCents: -1 },
+    heartbeat_triage: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano"], maxTokens: 2048, ceilingCents: 5 },
+    safety_check: { candidates: ["o4-mini", "gpt-4.1", "gpt-4o"], maxTokens: 4096, ceilingCents: 20 },
+    summarization: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano"], maxTokens: 4096, ceilingCents: 15 },
+    planning: { candidates: ["gpt-4.1", "o4-mini", "gpt-4o"], maxTokens: 8192, ceilingCents: -1 },
   },
   normal: {
-    agent_turn: { candidates: ["gpt-4.1", "gpt-4o", "gpt-4.1-mini", "gpt-4o-mini", "gpt-5.2"], maxTokens: 4096, ceilingCents: -1 },
-    heartbeat_triage: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini"], maxTokens: 2048, ceilingCents: 5 },
-    safety_check: { candidates: ["gpt-4.1", "gpt-4o", "gpt-4.1-mini", "gpt-4o-mini", "gpt-5.2"], maxTokens: 4096, ceilingCents: 10 },
-    summarization: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini"], maxTokens: 4096, ceilingCents: 10 },
-    planning: { candidates: ["gpt-4.1", "gpt-4o", "gpt-4.1-mini", "gpt-4o-mini", "gpt-5.2"], maxTokens: 4096, ceilingCents: -1 },
+    agent_turn: { candidates: ["gpt-4.1", "gpt-4o", "gpt-4.1-mini", "gpt-4o-mini"], maxTokens: 4096, ceilingCents: -1 },
+    heartbeat_triage: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano"], maxTokens: 2048, ceilingCents: 5 },
+    safety_check: { candidates: ["gpt-4.1", "gpt-4o", "gpt-4.1-mini", "gpt-4o-mini"], maxTokens: 4096, ceilingCents: 10 },
+    summarization: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano"], maxTokens: 4096, ceilingCents: 10 },
+    planning: { candidates: ["gpt-4.1", "gpt-4o", "gpt-4.1-mini", "gpt-4o-mini"], maxTokens: 4096, ceilingCents: -1 },
   },
   low_compute: {
-    agent_turn: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini"], maxTokens: 4096, ceilingCents: 10 },
-    heartbeat_triage: { candidates: ["gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini", "gpt-5-mini"], maxTokens: 1024, ceilingCents: 2 },
-    safety_check: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini"], maxTokens: 2048, ceilingCents: 5 },
-    summarization: { candidates: ["gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini", "gpt-5-mini"], maxTokens: 2048, ceilingCents: 5 },
-    planning: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini"], maxTokens: 2048, ceilingCents: 5 },
+    agent_turn: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano"], maxTokens: 4096, ceilingCents: 10 },
+    heartbeat_triage: { candidates: ["gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini"], maxTokens: 1024, ceilingCents: 2 },
+    safety_check: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano"], maxTokens: 2048, ceilingCents: 5 },
+    summarization: { candidates: ["gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini"], maxTokens: 2048, ceilingCents: 5 },
+    planning: { candidates: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1-nano"], maxTokens: 2048, ceilingCents: 5 },
   },
   critical: {
     agent_turn: { candidates: ["gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini"], maxTokens: 2048, ceilingCents: 3 },

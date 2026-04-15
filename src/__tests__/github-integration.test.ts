@@ -71,13 +71,13 @@ describe("STATIC_MODEL_BASELINE — GitHub models", () => {
     expect(mini).toBeDefined();
     expect(mini!.provider).toBe("github");
     expect(mini!.tierMinimum).toBe("low_compute");
-    expect(mini!.costPer1kInput).toBeGreaterThan(0);
-    expect(mini!.costPer1kOutput).toBeGreaterThan(0);
+    expect(mini!.costPer1kInput).toBe(0);
+    expect(mini!.costPer1kOutput).toBe(0);
   });
 
   it("github models use max_completion_tokens parameter style", () => {
     const githubModels = STATIC_MODEL_BASELINE.filter((m) => m.provider === "github");
-    expect(githubModels.length).toBe(2);
+    expect(githubModels.length).toBe(6);
     for (const model of githubModels) {
       expect(model.parameterStyle).toBe("max_completion_tokens");
     }
@@ -176,7 +176,6 @@ describe("InferenceRouter — GitHub provider routing", () => {
 
   it("github models are skipped when GITHUB_TOKEN is not set", () => {
     clearEnv("GITHUB_TOKEN");
-    setEnv("CONWAY_API_KEY", "conway-test");
 
     const registry = new ModelRegistry(db);
     registry.initialize();
@@ -188,9 +187,8 @@ describe("InferenceRouter — GitHub provider routing", () => {
     expect(githubCandidates.length).toBe(0);
   });
 
-  it("github models appear alongside other providers when all keys are set", () => {
+  it("github models appear when GITHUB_TOKEN is set", () => {
     setEnv("GITHUB_TOKEN", "ghp_test");
-    setEnv("CONWAY_API_KEY", "conway-test");
 
     const registry = new ModelRegistry(db);
     registry.initialize();
@@ -201,8 +199,7 @@ describe("InferenceRouter — GitHub provider routing", () => {
     const candidates = router.selectCandidates("high", "agent_turn");
     const providers = new Set(candidates.map((c) => c.provider));
 
-    // At minimum conway and github should be there from routing matrix
-    expect(providers.has("conway") || providers.has("github")).toBe(true);
+    expect(providers.has("github")).toBe(true);
   });
 
   it("selectModel returns github model as fallback when others are disabled", () => {
@@ -282,7 +279,7 @@ describe("InferenceRouter — route() with GitHub model", () => {
 
     expect(result.content).toBe("Hello from GitHub model");
     expect(result.provider).toBe("github");
-    expect(result.model).toBe("gpt-4o");
+    expect(result.model).toBe("gpt-4.1");
   });
 
   it("records cost for github model calls", async () => {
