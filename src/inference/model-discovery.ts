@@ -9,6 +9,9 @@ import { ResilientHttpClient } from "../conway/http-client.js";
 import { STATIC_MODEL_BASELINE } from "./types.js";
 import type { ProviderConfig, ModelConfig, ModelTier } from "./provider-registry.js";
 import { createLogger } from "../observability/logger.js";
+import type BetterSqlite3 from "better-sqlite3";
+import { modelRegistryUpsert, modelRegistryGet } from "../state/database.js";
+import type { ModelRegistryRow, SurvivalTier } from "../types.js";
 
 const logger = createLogger("model-discovery");
 
@@ -197,6 +200,106 @@ function inferTier(modelId: string): ModelTier {
   if (CHEAP_PATTERNS.test(modelId)) return "cheap";
   if (REASONING_PATTERNS.test(modelId)) return "reasoning";
   return "fast"; // default
+}
+
+// ─── SurvivalTier Heuristics (for registry upsert) ─────────────
+
+const CRITICAL_TIER_PATTERNS = /\b(nano|tiny|small|lite)\b/i;
+const LOW_COMPUTE_TIER_PATTERNS = /\b(mini)\b/i;
+
+function inferSurvivalTier(modelId: string): SurvivalTier {
+  if (CRITICAL_TIER_PATTERNS.test(modelId)) return "critical";
+  if (LOW_COMPUTE_TIER_PATTERNS.test(modelId)) return "low_compute";
+  return "normal";
+}
+
+// ─── GitHub Model Discovery ────────────────────────────────────
+
+const GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com";
+const GITHUB_DISCOVERY_TIMEOUT_MS = 10_000;
+
+/**
+ * Discover models from the GitHub Models API and register them in the
+ * model registry with provider "github". Non-destructive: only adds or
+ * updates models, never disables existing ones.
+ *
+ * Returns the list of discovered model IDs, or an empty array if
+ * the API is unreachable (treated as a soft failure).
+ */
+export async function discoverGitHubModels(
+  githubToken: string,
+  db: BetterSqlite3.Database,
+): Promise<string[]> {
+  const url = `${GITHUB_MODELS_BASE_URL}/v1/models`;
+  const staticByModel = new Map(
+    STATIC_MODEL_BASELINE.map((m) => [m.modelId, m]),
+  );
+
+  let data: any;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(GITHUB_DISCOVERY_TIMEOUT_MS),
+    });
+    if (!resp.ok) {
+      logger.warn(`GitHub Models /v1/models returned ${resp.status} — skipping discovery`);
+      return [];
+    }
+    data = await resp.json();
+  } catch (err: any) {
+    logger.warn(`GitHub Models API not reachable: ${err.message}`);
+    return [];
+  }
+
+  const modelList: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  if (modelList.length === 0) {
+    logger.warn("GitHub Models API returned no models");
+    return [];
+  }
+
+  const now = new Date().toISOString();
+  const registered: string[] = [];
+
+  for (const entry of modelList) {
+    const modelId = typeof entry.id === "string" ? entry.id : null;
+    if (!modelId) continue;
+
+    const staticMatch = staticByModel.get(modelId);
+    const existing = modelRegistryGet(db, modelId);
+
+    // If this model already exists with a non-github provider, skip it —
+    // don't hijack Conway-exclusive models (e.g. gpt-5.x).
+    if (existing && existing.provider !== "github") continue;
+
+    const row: ModelRegistryRow = {
+      modelId,
+      provider: "github",
+      displayName: staticMatch?.displayName ?? `${modelId} (GitHub)`,
+      tierMinimum: staticMatch?.tierMinimum ?? existing?.tierMinimum ?? inferSurvivalTier(modelId),
+      costPer1kInput: staticMatch?.costPer1kInput ?? existing?.costPer1kInput ?? 0,
+      costPer1kOutput: staticMatch?.costPer1kOutput ?? existing?.costPer1kOutput ?? 0,
+      maxTokens: staticMatch?.maxTokens ?? existing?.maxTokens ?? 16384,
+      contextWindow: staticMatch?.contextWindow ?? existing?.contextWindow ?? 128000,
+      supportsTools: staticMatch?.supportsTools ?? existing?.supportsTools ?? true,
+      supportsVision: staticMatch?.supportsVision ?? existing?.supportsVision ?? false,
+      parameterStyle: staticMatch?.parameterStyle ?? existing?.parameterStyle ?? "max_completion_tokens",
+      enabled: existing?.enabled ?? true,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    modelRegistryUpsert(db, row);
+    registered.push(modelId);
+  }
+
+  if (registered.length > 0) {
+    logger.info(`GitHub Models: registered ${registered.length} model(s): ${registered.join(", ")}`);
+  }
+
+  return registered;
 }
 
 /**

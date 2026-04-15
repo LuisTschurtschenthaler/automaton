@@ -299,7 +299,7 @@ async function run(): Promise<void> {
     apiKey,
     defaultModel: config.inferenceModel,
     maxTokens: config.maxTokensPerTurn,
-    lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-5-mini",
+    lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-4.1-mini",
     githubToken,
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,

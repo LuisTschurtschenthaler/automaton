@@ -106,10 +106,10 @@ export function getModelForTier(
     case "normal":
       return defaultModel;
     case "low_compute":
-      return "gpt-5-mini";
+      return "gpt-4.1-mini";
     case "critical":
-      return "gpt-5-mini";
+      return "gpt-4.1-mini";
     case "dead":
-      return "gpt-5-mini"; // Won't be used, but just in case
+      return "gpt-4.1-mini"; // Won't be used, but just in case
   }
 }

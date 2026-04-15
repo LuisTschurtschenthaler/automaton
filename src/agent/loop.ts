@@ -139,6 +139,15 @@ export async function runAgentLoop(
     const { discoverOllamaModels } = await import("../ollama/discover.js");
     await discoverOllamaModels(ollamaBaseUrl, db.raw);
   }
+
+  // Discover GitHub models (primary provider)
+  if (process.env.GITHUB_TOKEN) {
+    const { discoverGitHubModels } = await import("../inference/model-discovery.js");
+    await discoverGitHubModels(process.env.GITHUB_TOKEN, db.raw);
+  } else {
+    logger.warn("GITHUB_TOKEN not set — GitHub Models discovery skipped. GitHub is the primary inference provider.");
+  }
+
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
   const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
 

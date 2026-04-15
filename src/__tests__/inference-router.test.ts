@@ -82,7 +82,7 @@ describe("ModelRegistry", () => {
     const entry = registry.get("gpt-4.1");
     expect(entry).toBeDefined();
     expect(entry!.modelId).toBe("gpt-4.1");
-    expect(entry!.provider).toBe("conway");
+    expect(entry!.provider).toBe("github");
   });
 
   it("get returns undefined for unknown model", () => {
@@ -196,7 +196,8 @@ describe("ModelRegistry", () => {
     const registry = new ModelRegistry(db);
     registry.initialize();
 
-    const cost = registry.getCostPer1k("gpt-4.1");
+    // gpt-4.1 is now on GitHub (cost=0). Use a Conway model to test non-zero pricing.
+    const cost = registry.getCostPer1k("gpt-5.2");
     expect(cost.input).toBeGreaterThan(0);
     expect(cost.output).toBeGreaterThan(0);
   });
@@ -240,33 +241,37 @@ describe("InferenceRouter", () => {
     it("returns correct model for normal/agent_turn", () => {
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5.2");
+      expect(model!.modelId).toBe("gpt-4.1");
     });
 
     it("returns cheaper model for low_compute tier", () => {
       const model = router.selectModel("low_compute", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5-mini");
+      expect(model!.modelId).toBe("gpt-4.1-mini");
     });
 
     it("returns minimal model for critical tier", () => {
       const model = router.selectModel("critical", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5-mini");
+      expect(model!.modelId).toBe("gpt-4.1-nano");
     });
 
-    it("returns null for dead tier", () => {
+    it("returns free model for dead tier (zero-cost GitHub models bypass tier restriction)", () => {
       const model = router.selectModel("dead", "agent_turn");
-      expect(model).toBeNull();
+      // Free GitHub models are available even in dead tier since they don't cost anything
+      expect(model).not.toBeNull();
+      expect(model!.costPer1kInput).toBe(0);
     });
 
-    it("returns null for critical tier with non-essential task", () => {
+    it("returns free model for critical tier with non-essential task", () => {
       const model = router.selectModel("critical", "summarization");
-      expect(model).toBeNull();
+      // Free GitHub models are available for all tasks in critical tier
+      expect(model).not.toBeNull();
+      expect(model!.costPer1kInput).toBe(0);
     });
 
     it("skips disabled models and picks next candidate", () => {
-      registry.setEnabled("gpt-5.2", false);
+      registry.setEnabled("gpt-4.1", false);
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
       expect(model!.modelId).toBe("gpt-4o");
@@ -292,18 +297,17 @@ describe("InferenceRouter", () => {
       );
 
       expect(result.content).toBe("Hello!");
-      expect(result.model).toBe("gpt-5.2");
+      expect(result.model).toBe("gpt-4.1");
       expect(result.finishReason).toBe("stop");
 
       // Verify cost was recorded
       const costs = inferenceGetSessionCosts(db, "test-session");
       expect(costs.length).toBe(1);
-      expect(costs[0].model).toBe("gpt-5.2");
+      expect(costs[0].model).toBe("gpt-4.1");
     });
 
     it("computes actualCostCents accurately from token usage", async () => {
-      // gpt-5.2 has costPer1kInput=20, costPer1kOutput=80 (hundredths of cents)
-      // Formula: Math.ceil((input/1000)*costPer1kInput/100 + (output/1000)*costPer1kOutput/100)
+      // gpt-4.1 on GitHub has cost=0 (Enterprise). Cost should be 0.
       const mockChat = async (_msgs: any[], _opts: any) => ({
         message: { content: "result", role: "assistant" },
         usage: { promptTokens: 1000, completionTokens: 500 },
@@ -320,9 +324,8 @@ describe("InferenceRouter", () => {
         mockChat,
       );
 
-      // Verify cost is computed correctly
-      // (1000/1000)*300/100 + (500/1000)*1500/100 = 3 + 7.5 = 10.5 => ceil = 11
-      expect(result.costCents).toBeGreaterThan(0);
+      // GitHub models have zero cost — verify cost tracking still works
+      expect(result.costCents).toBeGreaterThanOrEqual(0);
       expect(typeof result.costCents).toBe("number");
       expect(Number.isInteger(result.costCents)).toBe(true);
 
@@ -335,69 +338,85 @@ describe("InferenceRouter", () => {
     });
 
     it("returns error when budget is exhausted", async () => {
-      const strictBudget = new InferenceBudgetTracker(db, {
-        ...DEFAULT_MODEL_STRATEGY_CONFIG,
-        perCallCeilingCents: 1, // Very low ceiling
-      });
-      const strictRouter = new InferenceRouter(db, registry, strictBudget);
+      // Temporarily remove GITHUB_TOKEN to force Conway models (which have non-zero costs)
+      const savedGithub = process.env.GITHUB_TOKEN;
+      delete process.env.GITHUB_TOKEN;
+      try {
+        const strictBudget = new InferenceBudgetTracker(db, {
+          ...DEFAULT_MODEL_STRATEGY_CONFIG,
+          perCallCeilingCents: 1, // Very low ceiling
+        });
+        const strictRouter = new InferenceRouter(db, registry, strictBudget);
 
-      // Insert a bunch of text to inflate the cost estimate
-      const longMessage = "x".repeat(100000);
-      const result = await strictRouter.route(
-        {
-          messages: [{ role: "user", content: longMessage }],
-          taskType: "agent_turn",
-          tier: "normal",
-          sessionId: "test-session",
-          maxTokens: 50000,
-        },
-        async () => ({ message: { content: "" }, usage: { promptTokens: 0, completionTokens: 0 }, finishReason: "stop" }),
-      );
+        // Insert a bunch of text to inflate the cost estimate
+        const longMessage = "x".repeat(100000);
+        const result = await strictRouter.route(
+          {
+            messages: [{ role: "user", content: longMessage }],
+            taskType: "agent_turn",
+            tier: "normal",
+            sessionId: "test-session",
+            maxTokens: 50000,
+          },
+          async () => ({ message: { content: "" }, usage: { promptTokens: 0, completionTokens: 0 }, finishReason: "stop" }),
+        );
 
-      expect(result.finishReason).toBe("budget_exceeded");
+        expect(result.finishReason).toBe("budget_exceeded");
+      } finally {
+        if (savedGithub !== undefined) process.env.GITHUB_TOKEN = savedGithub;
+        else delete process.env.GITHUB_TOKEN;
+      }
     });
 
     it("enforces session budget when configured", async () => {
-      const sessionBudget = new InferenceBudgetTracker(db, {
-        ...DEFAULT_MODEL_STRATEGY_CONFIG,
-        sessionBudgetCents: 5,
-      });
-      const sessionRouter = new InferenceRouter(db, registry, sessionBudget);
+      // Temporarily remove GITHUB_TOKEN to force Conway models (which have non-zero costs)
+      const savedGithub = process.env.GITHUB_TOKEN;
+      delete process.env.GITHUB_TOKEN;
+      try {
+        const sessionBudget = new InferenceBudgetTracker(db, {
+          ...DEFAULT_MODEL_STRATEGY_CONFIG,
+          sessionBudgetCents: 5,
+        });
+        const sessionRouter = new InferenceRouter(db, registry, sessionBudget);
 
-      // Record enough cost to nearly exhaust the session budget
-      sessionBudget.recordCost({
-        sessionId: "budget-session",
-        turnId: null,
-        model: "gpt-4.1",
-        provider: "conway",
-        inputTokens: 1000,
-        outputTokens: 500,
-        costCents: 4,
-        latencyMs: 100,
-        tier: "normal",
-        taskType: "agent_turn",
-        cacheHit: false,
-      });
-
-      // Use a long message so the estimated cost pushes past the 5c limit
-      const longMessage = "x".repeat(100000);
-      const result = await sessionRouter.route(
-        {
-          messages: [{ role: "user", content: longMessage }],
-          taskType: "agent_turn",
-          tier: "normal",
+        // Record enough cost to nearly exhaust the session budget
+        sessionBudget.recordCost({
           sessionId: "budget-session",
-          maxTokens: 50000,
-        },
-        async () => ({
-          message: { content: "" },
-          usage: { promptTokens: 0, completionTokens: 0 },
-          finishReason: "stop",
-        }),
-      );
+          turnId: null,
+          model: "gpt-5.2",
+          provider: "conway",
+          inputTokens: 1000,
+          outputTokens: 500,
+          costCents: 4,
+          latencyMs: 100,
+          tier: "normal",
+          taskType: "agent_turn",
+          cacheHit: false,
+        });
 
-      expect(result.finishReason).toBe("budget_exceeded");
-      expect(result.content).toContain("Session budget exceeded");
+        // Use a long message so the estimated cost pushes past the 5c limit
+        const longMessage = "x".repeat(100000);
+        const result = await sessionRouter.route(
+          {
+            messages: [{ role: "user", content: longMessage }],
+            taskType: "agent_turn",
+            tier: "normal",
+            sessionId: "budget-session",
+            maxTokens: 50000,
+          },
+          async () => ({
+            message: { content: "" },
+            usage: { promptTokens: 0, completionTokens: 0 },
+            finishReason: "stop",
+          }),
+        );
+
+        expect(result.finishReason).toBe("budget_exceeded");
+        expect(result.content).toContain("Session budget exceeded");
+      } finally {
+        if (savedGithub !== undefined) process.env.GITHUB_TOKEN = savedGithub;
+        else delete process.env.GITHUB_TOKEN;
+      }
     });
 
     it("passes abort signal to inference function", async () => {
@@ -425,7 +444,7 @@ describe("InferenceRouter", () => {
       expect(receivedSignal).toBeInstanceOf(AbortSignal);
     });
 
-    it("returns empty result for dead tier", async () => {
+    it("routes successfully for dead tier with free models", async () => {
       const result = await router.route(
         {
           messages: [{ role: "user", content: "Hi" }],
@@ -433,11 +452,12 @@ describe("InferenceRouter", () => {
           tier: "dead",
           sessionId: "test-session",
         },
-        async () => ({ message: { content: "" }, usage: {}, finishReason: "stop" }),
+        async () => ({ message: { content: "survived" }, usage: { promptTokens: 10, completionTokens: 5 }, finishReason: "stop" }),
       );
 
-      expect(result.model).toBe("none");
-      expect(result.finishReason).toBe("error");
+      // Free GitHub models allow inference even in dead tier
+      expect(result.content).toBe("survived");
+      expect(result.finishReason).toBe("stop");
     });
   });
 
@@ -943,9 +963,9 @@ describe("Inference DB Helpers", () => {
 
 describe("DEFAULT_MODEL_STRATEGY_CONFIG", () => {
   it("has sensible defaults", () => {
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.inferenceModel).toBe("gpt-5.2");
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.lowComputeModel).toBe("gpt-5-mini");
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.criticalModel).toBe("gpt-5-mini");
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.inferenceModel).toBe("gpt-4.1");
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.lowComputeModel).toBe("gpt-4.1-mini");
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.criticalModel).toBe("gpt-4.1-nano");
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.enableModelFallback).toBe(true);
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.hourlyBudgetCents).toBe(0); // no limit
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.sessionBudgetCents).toBe(0); // no limit

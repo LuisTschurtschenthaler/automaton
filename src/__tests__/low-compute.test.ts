@@ -30,7 +30,7 @@ describe("canRunInference", () => {
 });
 
 describe("getModelForTier", () => {
-  const defaultModel = "gpt-5.2";
+  const defaultModel = "gpt-4.1";
 
   it("returns default model for 'high' tier", () => {
     expect(getModelForTier("high", defaultModel)).toBe(defaultModel);
@@ -40,20 +40,20 @@ describe("getModelForTier", () => {
     expect(getModelForTier("normal", defaultModel)).toBe(defaultModel);
   });
 
-  it("returns gpt-5-mini for 'low_compute' tier", () => {
-    expect(getModelForTier("low_compute", defaultModel)).toBe("gpt-5-mini");
+  it("returns gpt-4.1-mini for 'low_compute' tier", () => {
+    expect(getModelForTier("low_compute", defaultModel)).toBe("gpt-4.1-mini");
   });
 
-  it("returns gpt-5-mini for 'critical' tier", () => {
-    expect(getModelForTier("critical", defaultModel)).toBe("gpt-5-mini");
+  it("returns gpt-4.1-mini for 'critical' tier", () => {
+    expect(getModelForTier("critical", defaultModel)).toBe("gpt-4.1-mini");
   });
 
-  it("returns gpt-5-mini for 'dead' tier", () => {
-    expect(getModelForTier("dead", defaultModel)).toBe("gpt-5-mini");
+  it("returns gpt-4.1-mini for 'dead' tier", () => {
+    expect(getModelForTier("dead", defaultModel)).toBe("gpt-4.1-mini");
   });
 
   it("returns the default model for 'normal' tier with custom default", () => {
-    expect(getModelForTier("normal", "gpt-5.2")).toBe("gpt-5.2");
+    expect(getModelForTier("normal", "gpt-4.1")).toBe("gpt-4.1");
   });
 
   it("returns a value for every tier", () => {
@@ -124,33 +124,33 @@ describe("createInferenceClient setLowComputeMode", () => {
   const baseOptions = {
     apiUrl: "https://api.conway.tech",
     apiKey: "test-key",
-    defaultModel: "gpt-5.2",
+    defaultModel: "gpt-4.1",
     maxTokens: 4096,
   };
 
   it("uses lowComputeModel when provided", () => {
     const client = createInferenceClient({
       ...baseOptions,
-      lowComputeModel: "gpt-5-mini",
+      lowComputeModel: "gpt-4.1-mini",
     });
     client.setLowComputeMode(true);
-    expect(client.getDefaultModel()).toBe("gpt-5-mini");
+    expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
   });
 
-  it("falls back to gpt-5-mini when no lowComputeModel is provided", () => {
+  it("falls back to gpt-4.1-mini when no lowComputeModel is provided", () => {
     const client = createInferenceClient(baseOptions);
     client.setLowComputeMode(true);
-    expect(client.getDefaultModel()).toBe("gpt-5-mini");
+    expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
   });
 
   it("restores defaultModel when low compute mode is disabled", () => {
     const client = createInferenceClient({
       ...baseOptions,
-      lowComputeModel: "gpt-5-mini",
+      lowComputeModel: "gpt-4.1-mini",
     });
     client.setLowComputeMode(true);
-    expect(client.getDefaultModel()).toBe("gpt-5-mini");
+    expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
     client.setLowComputeMode(false);
-    expect(client.getDefaultModel()).toBe("gpt-5.2");
+    expect(client.getDefaultModel()).toBe("gpt-4.1");
   });
 });
