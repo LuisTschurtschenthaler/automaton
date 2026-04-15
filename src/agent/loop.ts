@@ -94,6 +94,29 @@ export interface AgentLoopOptions {
 }
 
 /**
+ * Trigger GitHub OAuth device flow to obtain a fresh token.
+ * Persists the token to config and process.env on success.
+ */
+async function reauth(config: AutomatonConfig): Promise<void> {
+  try {
+    const { githubDeviceFlow } = await import("../identity/github-oauth.js");
+    const token = await githubDeviceFlow({
+      onUserCode: (code, uri) => {
+        console.log(`\n  Open ${uri} and enter code: ${code}\n`);
+      },
+    });
+    config.githubToken = token;
+    process.env.GITHUB_TOKEN = token;
+
+    const { saveConfig } = await import("../config.js");
+    saveConfig(config);
+    logger.info("GitHub OAuth token refreshed and saved.");
+  } catch (err: any) {
+    logger.warn(`GitHub OAuth failed: ${err.message} — inference will be unavailable.`);
+  }
+}
+
+/**
  * Run the agent loop. This is the main execution path.
  * Returns when the agent decides to sleep or when compute runs out.
  */
@@ -143,13 +166,18 @@ export async function runAgentLoop(
         const user = await resp.json() as Record<string, unknown>;
         logger.info(`GitHub token valid — authenticated as ${user.login}`);
       } else if (resp.status === 401) {
-        logger.warn("GITHUB_TOKEN is invalid or expired — GitHub Models inference will fail. Run --configure to update.");
+        logger.warn("GITHUB_TOKEN is invalid or expired — re-authenticating via OAuth...");
+        await reauth(config);
       } else {
         logger.warn(`GitHub token validation returned HTTP ${resp.status}`);
       }
     } catch (err: any) {
       logger.warn(`GitHub token validation failed: ${err.message}`);
     }
+  } else {
+    // No token at all — trigger OAuth
+    logger.info("No GitHub token in agent loop — starting OAuth device flow...");
+    await reauth(config);
   }
 
   const modelRegistry = new ModelRegistry(db.raw);

@@ -284,7 +284,31 @@ async function run(): Promise<void> {
   if (apiKey && !process.env.CONWAY_API_KEY) {
     process.env.CONWAY_API_KEY = apiKey;
   }
-  const githubToken = config.githubToken || process.env.GITHUB_TOKEN;
+  let githubToken = config.githubToken || process.env.GITHUB_TOKEN;
+
+  // Auto-trigger OAuth device flow if no GitHub token is available
+  if (!githubToken) {
+    logger.info("No GitHub token found — starting OAuth device flow...");
+    try {
+      const { githubDeviceFlow } = await import("./identity/github-oauth.js");
+      const token = await githubDeviceFlow({
+        onUserCode: (code, uri) => {
+          console.log(`\n  Open ${uri} and enter code: ${code}\n`);
+        },
+      });
+      githubToken = token;
+      config.githubToken = token;
+      process.env.GITHUB_TOKEN = token;
+
+      // Persist so next startup doesn't need auth again
+      const { saveConfig } = await import("./config.js");
+      saveConfig(config);
+      logger.info("GitHub OAuth token saved to config.");
+    } catch (err: any) {
+      logger.warn(`GitHub OAuth failed: ${err.message} — inference will be unavailable.`);
+    }
+  }
+
   if (githubToken && !process.env.GITHUB_TOKEN) {
     process.env.GITHUB_TOKEN = githubToken;
   }
