@@ -1065,14 +1065,22 @@ export async function runAgentLoop(
       // Note: if multiple providers are configured, the InferenceRouter tries
       // all candidates before throwing.  An "insufficient_quota" that reaches
       // here means ALL providers have been exhausted (or only one was available).
-      const isTerminalError =
+      // Context-size failures (413 / "too large") are NOT terminal — the next
+      // turn may have fewer messages and succeed. Only auth & quota errors
+      // are truly permanent.
+      const isContextSizeError =
+        err.message?.includes("413") ||
+        err.message?.includes("too large") ||
+        err.message?.includes("Context window too small");
+      const isTerminalError = !isContextSizeError && (
         err.message?.includes("insufficient_quota") ||
         err.message?.includes("invalid_api_key") ||
         err.message?.includes("invalid_request_error") ||
         err.message?.includes("All inference candidates failed") ||
         err.message?.includes("All providers failed") ||
         (err.message?.includes("401") && err.message?.includes("Inference error")) ||
-        (err.message?.includes("400") && err.message?.includes("Inference error"));
+        (err.message?.includes("400") && err.message?.includes("Inference error"))
+      );
       if (isTerminalError) {
         // Log which provider(s) are available for debugging misconfiguration
         const availableProviders = inferenceRouter

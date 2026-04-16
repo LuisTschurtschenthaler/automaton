@@ -126,14 +126,35 @@ export class InferenceRouter {
       }
 
       // 4. Fit messages into model's context window.
-      //    GitHub Models free tier only allows 8k tokens per request.
       //    Reserve space for output tokens and tool definitions; trim oldest messages if needed.
+      //    If tools alone exceed the context window, fall back to tool-less inference.
       const preference = this.getPreference(tier, taskType);
       let effectiveMaxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
       effectiveMaxTokens = Math.min(effectiveMaxTokens, model.contextWindow / 2);
 
       const toolsTokens = this.estimateToolsTokens(tools);
-      const inputBudget = Math.floor((model.contextWindow - effectiveMaxTokens - toolsTokens) * 0.9);
+      let inputBudget = Math.floor((model.contextWindow - effectiveMaxTokens - toolsTokens) * 0.9);
+      let effectiveTools = tools;
+
+      // When tools + maxTokens exceed the context window, strip tools so the
+      // model can still reason (degraded mode — no tool calls in response).
+      if (inputBudget <= 0 && tools && tools.length > 0) {
+        logger.info(
+          `Tools (~${toolsTokens} tokens) + maxTokens (${effectiveMaxTokens}) exceed ` +
+          `${model.modelId} context window (${model.contextWindow}). Stripping tools for degraded inference.`,
+        );
+        effectiveTools = undefined;
+        inputBudget = Math.floor((model.contextWindow - effectiveMaxTokens) * 0.9);
+      }
+
+      // Even without tools, context window is too small — skip candidate entirely.
+      if (inputBudget <= 0) {
+        const msg = `Context window too small (${model.contextWindow}) for maxTokens (${effectiveMaxTokens})`;
+        logger.info(`Skipping ${model.modelId}(${model.provider}): ${msg}`);
+        failures.push({ model: model.modelId, provider: model.provider, error: msg });
+        continue;
+      }
+
       const transformedMessages = this.fitMessagesToContext(messages, inputBudget);
 
       // 5. Build inference options
@@ -142,7 +163,7 @@ export class InferenceRouter {
       const inferenceOptions: any = {
         model: model.modelId,
         maxTokens: effectiveMaxTokens,
-        tools: tools,
+        tools: effectiveTools,
       };
 
       // 6. Call inference with timeout (with 413 retry)
@@ -192,8 +213,27 @@ export class InferenceRouter {
               request.maxTokens || preference?.maxTokens || model.maxTokens,
               Math.floor(correctedContextWindow / 2),
             );
-            const retryToolsTokens = this.estimateToolsTokens(tools);
-            const retryInputBudget = Math.floor((correctedContextWindow - retryMaxTokens - retryToolsTokens) * 0.75);
+            const retryToolsTokens = this.estimateToolsTokens(effectiveTools);
+            let retryInputBudget = Math.floor((correctedContextWindow - retryMaxTokens - retryToolsTokens) * 0.75);
+
+            // If tools still blow the budget, strip them for this retry
+            if (retryInputBudget <= 0 && effectiveTools && effectiveTools.length > 0) {
+              logger.info(
+                `413 retry: tools (~${retryToolsTokens} tokens) still exceed corrected context (${correctedContextWindow}). Stripping tools.`,
+              );
+              effectiveTools = undefined;
+              inferenceOptions.tools = undefined;
+              retryInputBudget = Math.floor((correctedContextWindow - retryMaxTokens) * 0.75);
+            }
+
+            if (retryInputBudget <= 0) {
+              const msg = `Context window (${correctedContextWindow}) still too small after 413 correction`;
+              logger.warn(`Skipping ${model.modelId}(${model.provider}): ${msg}`);
+              failures.push({ model: model.modelId, provider: model.provider, error: msg });
+              lastError = new Error(msg);
+              continue;
+            }
+
             messagesToSend = this.fitMessagesToContext(messages, retryInputBudget);
             inferenceOptions.maxTokens = retryMaxTokens;
 

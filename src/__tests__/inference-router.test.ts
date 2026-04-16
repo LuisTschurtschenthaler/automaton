@@ -243,13 +243,13 @@ describe("InferenceRouter", () => {
     it("returns correct model for normal/agent_turn", () => {
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-4.1");
+      expect(model!.modelId).toBe("gpt-4o");
     });
 
     it("returns cheaper model for low_compute tier", () => {
       const model = router.selectModel("low_compute", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-4.1-mini");
+      expect(model!.modelId).toBe("gpt-4o-mini");
     });
 
     it("returns minimal model for critical tier", () => {
@@ -299,13 +299,13 @@ describe("InferenceRouter", () => {
       );
 
       expect(result.content).toBe("Hello!");
-      expect(result.model).toBe("gpt-4.1");
+      expect(result.model).toBe("gpt-4o");
       expect(result.finishReason).toBe("stop");
 
       // Verify cost was recorded
       const costs = inferenceGetSessionCosts(db, "test-session");
       expect(costs.length).toBe(1);
-      expect(costs[0].model).toBe("gpt-4.1");
+      expect(costs[0].model).toBe("gpt-4o");
     });
 
     it("computes actualCostCents accurately from token usage", async () => {

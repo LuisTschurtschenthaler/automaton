@@ -75,8 +75,8 @@ export function autoSelectModels(registry: ModelRegistry): ResolvedModels {
   const critical = pickBest(all, "critical") ?? lowCompute ?? inference;
 
   const result: ResolvedModels = {
-    inferenceModel: inference?.modelId ?? "gpt-4.1",
-    lowComputeModel: lowCompute?.modelId ?? "gpt-4.1-mini",
+    inferenceModel: inference?.modelId ?? "gpt-4o",
+    lowComputeModel: lowCompute?.modelId ?? "gpt-4o-mini",
     criticalModel: critical?.modelId ?? "gpt-4.1-nano",
   };
 
