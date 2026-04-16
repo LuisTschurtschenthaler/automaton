@@ -166,7 +166,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("reasoning");
 
     expect(resolved.provider.id).toBe("github");
-    expect(resolved.model.id).toBe("gpt-4.1");
+    expect(resolved.model.id).toBe("gpt-5.4");
   });
 
   it("resolveModel returns fast model from default tier", () => {
@@ -182,7 +182,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("cheap");
 
     expect(resolved.provider.id).toBe("github");
-    expect(resolved.model.id).toBe("gpt-4.1-nano");
+    expect(resolved.model.id).toBe("gpt-4o");
   });
 
   it("resolveCandidates returns fallback order for reasoning tier", () => {
@@ -211,7 +211,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("fast", true);
 
     expect(resolved.model.tier).toBe("cheap");
-    expect(resolved.model.id).toBe("gpt-4.1-nano");
+    expect(resolved.model.id).toBe("gpt-4o");
   });
 
   it("resolveModel in survival mode keeps cheap as cheap", () => {
@@ -319,10 +319,10 @@ describe("ProviderRegistry", () => {
 
   it("getModel returns requested provider/model", () => {
     const registry = createRegistryFromDefaults();
-    const resolved = registry.getModel("github", "gpt-4.1-mini");
+    const resolved = registry.getModel("github", "gemini-3-flash");
 
     expect(resolved.provider.id).toBe("github");
-    expect(resolved.model.id).toBe("gpt-4.1-mini");
+    expect(resolved.model.id).toBe("gemini-3-flash");
   });
 
   it("getModel throws for unknown provider", () => {

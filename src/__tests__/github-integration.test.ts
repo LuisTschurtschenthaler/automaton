@@ -66,20 +66,24 @@ describe("STATIC_MODEL_BASELINE — GitHub models", () => {
     expect(gpt4o!.enabled).toBe(true);
   });
 
-  it("includes gpt-4o-mini model with github provider", () => {
-    const mini = STATIC_MODEL_BASELINE.find((m) => m.modelId === "gpt-4o-mini");
-    expect(mini).toBeDefined();
-    expect(mini!.provider).toBe("github");
-    expect(mini!.tierMinimum).toBe("low_compute");
-    expect(mini!.costPer1kInput).toBe(0);
-    expect(mini!.costPer1kOutput).toBe(0);
+  it("includes gemini-3-flash model with github provider", () => {
+    const flash = STATIC_MODEL_BASELINE.find((m) => m.modelId === "gemini-3-flash");
+    expect(flash).toBeDefined();
+    expect(flash!.provider).toBe("github");
+    expect(flash!.tierMinimum).toBe("low_compute");
+    expect(flash!.costPer1kInput).toBe(0);
+    expect(flash!.costPer1kOutput).toBe(0);
   });
 
-  it("github models use max_completion_tokens parameter style", () => {
+  it("github models use correct parameter style", () => {
     const githubModels = STATIC_MODEL_BASELINE.filter((m) => m.provider === "github");
-    expect(githubModels.length).toBe(6);
+    expect(githubModels.length).toBe(9);
     for (const model of githubModels) {
-      expect(model.parameterStyle).toBe("max_completion_tokens");
+      if (model.modelId.startsWith("claude-")) {
+        expect(model.parameterStyle).toBe("max_tokens");
+      } else {
+        expect(model.parameterStyle).toBe("max_completion_tokens");
+      }
     }
   });
 });
@@ -97,13 +101,13 @@ describe("ModelRegistry — GitHub model seeding", () => {
     expect(gpt4o!.modelId).toBe("gpt-4o");
   });
 
-  it("seeds gpt-4o-mini from static baseline", () => {
+  it("seeds gemini-3-flash from static baseline", () => {
     const registry = new ModelRegistry(db);
     registry.initialize();
 
-    const mini = registry.get("gpt-4o-mini");
-    expect(mini).toBeDefined();
-    expect(mini!.provider).toBe("github");
+    const flash = registry.get("gemini-3-flash");
+    expect(flash).toBeDefined();
+    expect(flash!.provider).toBe("github");
   });
 
   it("github models are enabled by default", () => {
@@ -113,8 +117,8 @@ describe("ModelRegistry — GitHub model seeding", () => {
     const gpt4o = registry.get("gpt-4o");
     expect(gpt4o!.enabled).toBe(true);
 
-    const mini = registry.get("gpt-4o-mini");
-    expect(mini!.enabled).toBe(true);
+    const flash = registry.get("gemini-3-flash");
+    expect(flash!.enabled).toBe(true);
   });
 
   it("github models appear in getAvailable", () => {
@@ -162,8 +166,8 @@ describe("InferenceRouter — GitHub provider routing", () => {
     const strategy = {
       ...DEFAULT_MODEL_STRATEGY_CONFIG,
       inferenceModel: "gpt-4o",
-      lowComputeModel: "gpt-4o-mini",
-      criticalModel: "gpt-4o-mini",
+      lowComputeModel: "gemini-3-flash",
+      criticalModel: "gpt-4o",
     };
 
     const budget = new InferenceBudgetTracker(db, strategy);
@@ -220,8 +224,8 @@ describe("InferenceRouter — GitHub provider routing", () => {
     const strategy = {
       ...DEFAULT_MODEL_STRATEGY_CONFIG,
       inferenceModel: "gpt-4o",
-      lowComputeModel: "gpt-4o-mini",
-      criticalModel: "gpt-4o-mini",
+      lowComputeModel: "gemini-3-flash",
+      criticalModel: "gpt-4o",
     };
 
     const budget = new InferenceBudgetTracker(db, strategy);
@@ -253,8 +257,8 @@ describe("InferenceRouter — route() with GitHub model", () => {
     const strategy = {
       ...DEFAULT_MODEL_STRATEGY_CONFIG,
       inferenceModel: "gpt-4o",
-      lowComputeModel: "gpt-4o-mini",
-      criticalModel: "gpt-4o-mini",
+      lowComputeModel: "gemini-3-flash",
+      criticalModel: "gpt-4o",
     };
 
     const budget = new InferenceBudgetTracker(db, strategy);
@@ -279,7 +283,7 @@ describe("InferenceRouter — route() with GitHub model", () => {
 
     expect(result.content).toBe("Hello from GitHub model");
     expect(result.provider).toBe("github");
-    expect(result.model).toBe("gpt-4.1");
+    expect(result.model).toBe("gpt-5.2");
   });
 
   it("records cost for github model calls", async () => {

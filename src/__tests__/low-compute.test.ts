@@ -39,16 +39,16 @@ describe("getModelForTier", () => {
     expect(getModelForTier("normal", defaultModel)).toBe(defaultModel);
   });
 
-  it("returns gpt-4.1-mini for 'low_compute' tier", () => {
-    expect(getModelForTier("low_compute", defaultModel)).toBe("gpt-4.1-mini");
+  it("returns gemini-3-flash for 'low_compute' tier", () => {
+    expect(getModelForTier("low_compute", defaultModel)).toBe("gemini-3-flash");
   });
 
-  it("returns gpt-4.1-mini for 'critical' tier", () => {
-    expect(getModelForTier("critical", defaultModel)).toBe("gpt-4.1-mini");
+  it("returns gpt-4o for 'critical' tier", () => {
+    expect(getModelForTier("critical", defaultModel)).toBe("gpt-4o");
   });
 
-  it("returns gpt-4.1-mini for 'dead' tier", () => {
-    expect(getModelForTier("dead", defaultModel)).toBe("gpt-4.1-mini");
+  it("returns gpt-4o for 'dead' tier", () => {
+    expect(getModelForTier("dead", defaultModel)).toBe("gpt-4o");
   });
 
   it("returns the default model for 'normal' tier with custom default", () => {
@@ -130,16 +130,16 @@ describe("InferenceClient setLowComputeMode", () => {
   }
 
   it("uses lowComputeModel when enabled", () => {
-    const client = createMockInferenceClient("gpt-4.1", "gpt-4.1-mini");
+    const client = createMockInferenceClient("gpt-5.2", "gemini-3-flash");
     client.setLowComputeMode(true);
-    expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
+    expect(client.getDefaultModel()).toBe("gemini-3-flash");
   });
 
   it("restores defaultModel when low compute mode is disabled", () => {
-    const client = createMockInferenceClient("gpt-4.1", "gpt-4.1-mini");
+    const client = createMockInferenceClient("gpt-5.2", "gemini-3-flash");
     client.setLowComputeMode(true);
-    expect(client.getDefaultModel()).toBe("gpt-4.1-mini");
+    expect(client.getDefaultModel()).toBe("gemini-3-flash");
     client.setLowComputeMode(false);
-    expect(client.getDefaultModel()).toBe("gpt-4.1");
+    expect(client.getDefaultModel()).toBe("gpt-5.2");
   });
 });

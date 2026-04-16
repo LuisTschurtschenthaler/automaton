@@ -80,7 +80,7 @@ describe("ProviderRegistry — Default Providers", () => {
 
     const modelIds = github.models.map((m) => m.id);
     expect(modelIds).toContain("gpt-4o");
-    expect(modelIds).toContain("gpt-4o-mini");
+    expect(modelIds).toContain("claude-sonnet-4.6");
   });
 
   it("github models support tools and streaming", () => {
@@ -134,7 +134,7 @@ describe("ProviderRegistry — GitHub Model Resolution", () => {
 
     const resolved = registry.resolveModel("fast");
     expect(resolved.provider.id).toBe("github");
-    expect(resolved.model.id).toBe("gpt-4o-mini");
+    expect(resolved.model.id).toBe("claude-sonnet-4.6");
   });
 
   it("resolves github model for cheap tier", () => {
@@ -151,7 +151,7 @@ describe("ProviderRegistry — GitHub Model Resolution", () => {
 
     const resolved = registry.resolveModel("cheap");
     expect(resolved.provider.id).toBe("github");
-    expect(resolved.model.id).toBe("gpt-4o-mini");
+    expect(resolved.model.id).toBe("gpt-4o");
   });
 
   it("falls back from github to other providers when github is disabled", () => {
@@ -389,8 +389,8 @@ function makeGithubProvider(): ProviderConfig {
       {
         id: "gpt-4o",
         tier: "reasoning",
-        contextWindow: 128000,
-        maxOutputTokens: 16384,
+        contextWindow: 68000,
+        maxOutputTokens: 4096,
         costPerInputToken: 2.5,
         costPerOutputToken: 10.0,
         supportsTools: true,
@@ -398,9 +398,9 @@ function makeGithubProvider(): ProviderConfig {
         supportsStreaming: true,
       },
       {
-        id: "gpt-4o-mini",
+        id: "claude-sonnet-4.6",
         tier: "fast",
-        contextWindow: 128000,
+        contextWindow: 200000,
         maxOutputTokens: 16384,
         costPerInputToken: 0.15,
         costPerOutputToken: 0.6,
@@ -409,10 +409,10 @@ function makeGithubProvider(): ProviderConfig {
         supportsStreaming: true,
       },
       {
-        id: "gpt-4o-mini",
+        id: "gpt-4o",
         tier: "cheap",
-        contextWindow: 128000,
-        maxOutputTokens: 16384,
+        contextWindow: 68000,
+        maxOutputTokens: 4096,
         costPerInputToken: 0.15,
         costPerOutputToken: 0.6,
         supportsTools: true,
@@ -446,9 +446,9 @@ function makeOpenaiProvider(): ProviderConfig {
         supportsStreaming: true,
       },
       {
-        id: "gpt-4.1-mini",
+        id: "gemini-3-flash",
         tier: "fast",
-        contextWindow: 128000,
+        contextWindow: 173000,
         maxOutputTokens: 16384,
         costPerInputToken: 0.4,
         costPerOutputToken: 1.6,

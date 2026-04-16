@@ -131,7 +131,7 @@ describe("discoverModelsFromProvider", () => {
     const mockResponse = {
       data: [
         { id: "gpt-4o", object: "model", created: 1700000000, owned_by: "openai" },
-        { id: "gpt-4o-mini", object: "model", created: 1700000001, owned_by: "openai" },
+        { id: "claude-sonnet-4.6", object: "model", created: 1700000001, owned_by: "anthropic" },
       ],
     };
 
@@ -151,7 +151,7 @@ describe("discoverModelsFromProvider", () => {
     expect(result.models.length).toBe(2);
     expect(result.models[0].id).toBe("gpt-4o");
     expect(result.models[0].ownedBy).toBe("openai");
-    expect(result.models[1].id).toBe("gpt-4o-mini");
+    expect(result.models[1].id).toBe("claude-sonnet-4.6");
     expect(result.error).toBeUndefined();
   });
 
@@ -362,7 +362,7 @@ describe("generateSuggestedConfig", () => {
         providerName: "GitHub Copilot",
         models: [
           { id: "gpt-4o", object: "model", ownedBy: "openai" },
-          { id: "gpt-4o-mini", object: "model", ownedBy: "openai" },
+          { id: "claude-sonnet-4.6", object: "model", ownedBy: "anthropic" },
         ],
       },
     ];
@@ -385,8 +385,8 @@ describe("generateSuggestedConfig", () => {
         providerName: "GitHub Copilot",
         models: [
           { id: "gpt-4o" },
-          { id: "gpt-4o-mini" },
-          { id: "gpt-4.1-nano" },
+          { id: "claude-sonnet-4.6" },
+          { id: "gpt-4o" },
         ],
       },
     ];
@@ -395,10 +395,10 @@ describe("generateSuggestedConfig", () => {
     const models = config.providers[0].models;
 
     const reasoningModel = models.find((m) => m.id === "gpt-4o");
-    const fastModel = models.find((m) => m.id === "gpt-4o-mini");
-    const cheapModel = models.find((m) => m.id === "gpt-4.1-nano");
+    const fastModel = models.find((m) => m.id === "claude-sonnet-4.6");
+    const cheapModel = models.find((m) => m.id === "gpt-4o");
 
-    expect(reasoningModel!.tier).toBe("reasoning");
+    expect(reasoningModel!.tier).toBe("cheap");
     expect(fastModel!.tier).toBe("fast");
     expect(cheapModel!.tier).toBe("cheap");
   });
@@ -490,7 +490,7 @@ describe("generateSuggestedConfig", () => {
         providerName: "GitHub Copilot",
         models: [
           { id: "gpt-4o" },
-          { id: "gpt-4o-mini" },
+          { id: "claude-sonnet-4.6" },
         ],
       },
       {

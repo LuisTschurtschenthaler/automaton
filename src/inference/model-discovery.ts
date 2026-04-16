@@ -204,9 +204,9 @@ export function buildProviderEndpoints(config?: {
 
 // ─── Tier Heuristics ────────────────────────────────────────────
 
-const CHEAP_PATTERNS = /\b(gpt-4\.1-nano|gpt-3\.5|nano|tiny|small|lite)\b/i;
-const FAST_PATTERNS = /\b(gpt-4o-mini|gpt-4\.1-mini|gpt-5-mini|claude-haiku|llama.*8b|gemma|mini)\b/i;
-const REASONING_PATTERNS = /\b(gpt-4o|gpt-4\.1|gpt-5|claude-sonnet|claude-opus|llama.*70b|mixtral.*8x22b)\b/i;
+const CHEAP_PATTERNS = /\b(gpt-4o|gpt-3\.5|nano|tiny|small|lite)\b/i;
+const FAST_PATTERNS = /\b(gemini-3-flash|claude-sonnet|gpt-4\.1|gpt-5-mini|claude-haiku|llama.*8b|gemma|mini)\b/i;
+const REASONING_PATTERNS = /\b(gpt-5\.\d|gpt-5\.3-codex|claude-opus|gemini-3\.1-pro|llama.*70b|mixtral.*8x22b)\b/i;
 
 function inferTier(modelId: string): ModelTier {
   if (FAST_PATTERNS.test(modelId)) return "fast";

@@ -123,7 +123,7 @@ describe("UnifiedInferenceClient", () => {
 
     expect(result.content).toBe("reasoning-response");
     expect(result.metadata.providerId).toBe("github");
-    expect(result.metadata.modelId).toBe("gpt-4o");
+    expect(result.metadata.modelId).toBe("gpt-5.4");
     expect(result.metadata.tier).toBe("reasoning");
   });
 
@@ -353,12 +353,12 @@ describe("UnifiedInferenceClient", () => {
 
     const result = await client.chatDirect({
       providerId: "github",
-      modelId: "gpt-4o-mini",
+      modelId: "claude-sonnet-4.6",
       messages: BASE_MESSAGES,
     });
 
     expect(result.metadata.providerId).toBe("github");
-    expect(result.metadata.modelId).toBe("gpt-4o-mini");
+    expect(result.metadata.modelId).toBe("claude-sonnet-4.6");
     expect(resolveSpy).not.toHaveBeenCalled();
   });
 
@@ -408,9 +408,9 @@ describe("UnifiedInferenceClient", () => {
 
     const result = await client.chat({ tier: "reasoning", messages: BASE_MESSAGES });
     expect(result.usage).toEqual({ inputTokens: 2000, outputTokens: 500, totalTokens: 2500 });
-    expect(result.cost.inputCostCredits).toBeCloseTo(5); // 2k * 2.5 / 1k
-    expect(result.cost.outputCostCredits).toBeCloseTo(5); // 0.5k * 10.0 / 1k
-    expect(result.cost.totalCostCredits).toBeCloseTo(10);
+    expect(result.cost.inputCostCredits).toBeCloseTo(0); // 2k * 0 / 1k (free tier)
+    expect(result.cost.outputCostCredits).toBeCloseTo(0); // 0.5k * 0 / 1k
+    expect(result.cost.totalCostCredits).toBeCloseTo(0);
   });
 
   it("extracts text content from structured content arrays", async () => {

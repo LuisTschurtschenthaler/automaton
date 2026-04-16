@@ -243,19 +243,19 @@ describe("InferenceRouter", () => {
     it("returns correct model for normal/agent_turn", () => {
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-4o");
+      expect(model!.modelId).toBe("gpt-5.2");
     });
 
     it("returns cheaper model for low_compute tier", () => {
       const model = router.selectModel("low_compute", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-4o-mini");
+      expect(model!.modelId).toBe("claude-sonnet-4.6");
     });
 
     it("returns minimal model for critical tier", () => {
       const model = router.selectModel("critical", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-4.1-nano");
+      expect(model!.modelId).toBe("gpt-4o");
     });
 
     it("returns free model for dead tier (zero-cost GitHub models bypass tier restriction)", () => {
@@ -273,10 +273,10 @@ describe("InferenceRouter", () => {
     });
 
     it("skips disabled models and picks next candidate", () => {
-      registry.setEnabled("gpt-4.1", false);
+      registry.setEnabled("gpt-5.2", false);
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-4o");
+      expect(model!.modelId).toBe("claude-sonnet-4.6");
     });
   });
 
@@ -299,13 +299,13 @@ describe("InferenceRouter", () => {
       );
 
       expect(result.content).toBe("Hello!");
-      expect(result.model).toBe("gpt-4o");
+      expect(result.model).toBe("gpt-5.2");
       expect(result.finishReason).toBe("stop");
 
       // Verify cost was recorded
       const costs = inferenceGetSessionCosts(db, "test-session");
       expect(costs.length).toBe(1);
-      expect(costs[0].model).toBe("gpt-4o");
+      expect(costs[0].model).toBe("gpt-5.2");
     });
 
     it("computes actualCostCents accurately from token usage", async () => {
@@ -650,7 +650,7 @@ describe("InferenceBudgetTracker", () => {
       latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
     });
     tracker.recordCost({
-      sessionId: "s2", turnId: null, model: "gpt-4.1-mini", provider: "github",
+      sessionId: "s2", turnId: null, model: "gemini-3-flash", provider: "github",
       inputTokens: 100, outputTokens: 50, costCents: 5,
       latencyMs: 100, tier: "low_compute", taskType: "heartbeat_triage", cacheHit: false,
     });
@@ -777,12 +777,15 @@ describe("Task Timeouts", () => {
 describe("Static Model Baseline", () => {
   it("contains expected models", () => {
     const ids = STATIC_MODEL_BASELINE.map((m) => m.modelId);
+    expect(ids).toContain("gpt-5.4");
+    expect(ids).toContain("gpt-5.2");
+    expect(ids).toContain("gpt-5.3-codex");
+    expect(ids).toContain("claude-opus-4.6");
+    expect(ids).toContain("claude-sonnet-4.6");
+    expect(ids).toContain("gemini-3.1-pro");
+    expect(ids).toContain("gemini-3-flash");
     expect(ids).toContain("gpt-4.1");
-    expect(ids).toContain("gpt-4.1-mini");
-    expect(ids).toContain("gpt-4.1-nano");
     expect(ids).toContain("gpt-4o");
-    expect(ids).toContain("gpt-4o-mini");
-    expect(ids).toContain("o4-mini");
   });
 
   it("all models have non-negative pricing", () => {
